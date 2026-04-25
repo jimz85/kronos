@@ -1,0 +1,61 @@
+{
+  "timestamp": "2026-04-25T20:12:44.005101",
+  "config": {
+    "period": 14,
+    "alert_threshold": 1.5,
+    "breakout_threshold": 2.0
+  },
+  "watchlist": {
+    "BTC-USDT": {
+      "symbol": "BTC-USDT",
+      "direction": "neutral",
+      "atr": 31569.42786409451,
+      "atr_percent": 55.80776830856489,
+      "strength": 0.6520561281933835,
+      "alert_level": "normal",
+      "reason": "ATR breakout detected (ratio=0.98)",
+      "timestamp": "2026-04-25T16:07:44.004267"
+    },
+    "ETH-USDT": {
+      "symbol": "ETH-USDT",
+      "direction": "long",
+      "atr": 1528.9030563136305,
+      "atr_percent": 49.564936803646646,
+      "strength": 0.687068278167733,
+      "alert_level": "normal",
+      "reason": "Price up 10.2%, ATR expanding",
+      "timestamp": "2026-04-25T16:07:44.004439"
+    },
+    "SOL-USDT": {
+      "symbol": "SOL-USDT",
+      "direction": "long",
+      "atr": 78.5274676280437,
+      "atr_percent": 49.33295742574607,
+      "strength": 0.6961293625081802,
+      "alert_level": "normal",
+      "reason": "Price up 9.4%, ATR expanding",
+      "timestamp": "2026-04-25T16:07:44.004628"
+    },
+    "DOGE-USDT": {
+      "symbol": "DOGE-USDT",
+      "direction": "long",
+      "atr": 0.07933526888030011,
+      "atr_percent": 52.638977053447476,
+      "strength": 0.6793951424146049,
+      "alert_level": "normal",
+      "reason": "Price up 4.4%, ATR expanding",
+      "timestamp": "2026-04-25T16:07:44.004787"
+    },
+    "AVAX-USDT": {
+      "symbol": "AVAX-USDT",
+      "direction": "neutral",
+      "atr": 17.74200444791742,
+      "atr_percent": 50.73681058280085,
+      "strength": 0.6899789585438024,
+      "alert_level": "normal",
+      "reason": "ATR breakout detected (ratio=1.03)",
+      "timestamp": "2026-04-25T16:07:44.004942"
+    }
+  },
+  "alert_count": 0
+}
