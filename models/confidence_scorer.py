@@ -199,6 +199,15 @@ class ConfidenceScorer:
         adx = alpha_indicators.get('adx', 0)
         bb_upper = alpha_indicators.get('bb_upper', close[-1] * 1.02)
         bb_lower = alpha_indicators.get('bb_lower', close[-1] * 0.98)
+        # 提取标量（避免 numpy array / pandas Series vs scalar 比较产生歧义）
+        def to_scalar(v):
+            if hasattr(v, 'iloc'):
+                return float(v.iloc[-1])
+            if hasattr(v, '__len__') and hasattr(v, '__getitem__'):
+                return float(v[-1])
+            return float(v)
+        bb_upper = to_scalar(bb_upper)
+        bb_lower = to_scalar(bb_lower)
         
         # RSI alignment
         if signal_type == 'long' and rsi < 50:
