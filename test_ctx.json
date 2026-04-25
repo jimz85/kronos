@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-04-20T23:27:45.472636",
+  "generated_by": "MiniMax-M2.7",
+  "next_update_at": "1776702465472",
+  "market_regime": "bull",
+  "regime_confidence": 0.85,
+  "btc_trend": "neutral",
+  "eth_trend": "neutral",
+  "overall_confidence": 0.75,
+  "factor_status": {
+    "vol_ratio": {
+      "status": "active",
+      "ic": 0.71,
+      "confidence": 0.8,
+      "note": "最优"
+    },
+    "rsi": {
+      "status": "inactive",
+      "ic": 0.0,
+      "confidence": 0.3,
+      "note": "噪声"
+    }
+  },
+  "primary_direction": "long",
+  "direction_confidence": 0.8,
+  "forbidden_actions": [
+    "short_btc"
+  ],
+  "current_positions": [
+    {
+      "coin": "AVAX",
+      "direction": "long",
+      "pnl_pct": 2.5,
+      "sl_distance_pct": 1.8,
+      "holding_hours": 4,
+      "status": "healthy"
+    }
+  ],
+  "total_exposure_pct": 15.0,
+  "max_total_leverage": 1.5,
+  "strategic_hint": "BTC牛市，关注ADA做多",
+  "confidence": 0.5,
+  "emergency_stop": {
+    "level": "none",
+    "reason": "",
+    "affected_coins": [],
+    "action": "none",
+    "until_ts": 0
+  },
+  "audit_id": "ctx_20260420232745"
+}

@@ -1,0 +1,14 @@
+{
+  "ts": "2026-04-25T14:00:52.477939",
+  "results": {
+    "network_blackout": {
+      "status": "verified"
+    },
+    "partial_fill": {
+      "status": "verified"
+    },
+    "kill_nine": {
+      "status": "verified"
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "strategy": "RSI+ADX SHORT",
+  "timeframe": "1H",
+  "direction": "short_only",
+  "entry": "RSI>65 AND ADX>15",
+  "leverage": 3,
+  "position_size": 0.1,
+  "stop_loss": 0.05,
+  "take_profit": 0.1,
+  "coins": [
+    "AVAX",
+    "DOT",
+    "DOGE"
+  ],
+  "performance": {
+    "annual_trades": 152,
+    "win_rate": 34.1,
+    "rr": 2.33,
+    "strategy_total_pnl": 1595,
+    "account_pnl": 479,
+    "account_dd": 89,
+    "yearly": {
+      "2020": 27,
+      "2021": 101,
+      "2022": 156,
+      "2023": -20,
+      "2024": 59,
+      "2025": 126
+    }
+  },
+  "alternative_coins": {
+    "DOT": {
+      "pnl": 1481,
+      "win_rate": 35,
+      "trades": 673
+    },
+    "DOGE": {
+      "pnl": 1005,
+      "win_rate": 32,
+      "trades": 853
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "ETH": {
+    "coin": "ETH",
+    "total_return_pct": 1015.84,
+    "n_trades": 686,
+    "win_rate": 31.8,
+    "avg_win_pct": 62.48,
+    "avg_loss_pct": -26.93,
+    "max_drawdown_pct": -75.59,
+    "trades_per_day": 0.94,
+    "final_capital": 111583.58
+  },
+  "BNB": {
+    "coin": "BNB",
+    "total_return_pct": -9.74,
+    "n_trades": 2,
+    "win_rate": 0.0,
+    "avg_win_pct": 0,
+    "avg_loss_pct": -4.87,
+    "max_drawdown_pct": -11.66,
+    "trades_per_day": 0.0,
+    "final_capital": 9025.74
+  },
+  "DOGE": {
+    "coin": "DOGE",
+    "total_return_pct": 8.86,
+    "n_trades": 458,
+    "win_rate": 31.7,
+    "avg_win_pct": 47.82,
+    "avg_loss_pct": -22.12,
+    "max_drawdown_pct": -92.68,
+    "trades_per_day": 0.63,
+    "final_capital": 10886.09
+  }
+}

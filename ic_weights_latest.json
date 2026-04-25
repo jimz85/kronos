@@ -1,0 +1,24 @@
+{
+  "updated": "2026-04-23T12:35:00",
+  "updated_by": "manual_cap_fix",
+  "source": "/Users/jimingzhang/.hermes/cron/output/paper_trades.json",
+  "trade_count": 5,
+  "weights": {
+    "RSI": 0.14874451107343573,
+    "ADX": 0.0,
+    "Bollinger": 0.29748902214687145,
+    "Vol": 0.0,
+    "MACD": 0.25089833946791584,
+    "BTC": 0.15953696955784608,
+    "Gemma": 0.14333115775393085
+  },
+  "prev_weights": {
+    "RSI": 0.14874451107343573,
+    "ADX": 0.0,
+    "Bollinger": 0.29748902214687145,
+    "Vol": 0.0,
+    "MACD": 0.25089833946791584,
+    "BTC": 0.15953696955784608,
+    "Gemma": 0.14333115775393085
+  }
+}

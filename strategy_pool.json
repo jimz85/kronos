@@ -1,0 +1,273 @@
+{
+  "project": "Kronos",
+  "version": "5",
+  "updated_at": "2026-04-13T22:17:00",
+  "description": "交易策略研究池 - 含现货和合约策略",
+  "research_mode": "elimination",
+  "goal": "找到能在实盘赚钱的策略，拒绝所有过拟合幻觉",
+  "strategies": [
+    {
+      "id": "STR-001",
+      "title": "BTC RSI均值回归(现货)",
+      "symbol": "BTC-USD",
+      "type": "spot",
+      "direction": "long",
+      "params": {
+        "rsi_buy": 30,
+        "rsi_sell": 70,
+        "stop_pct": 0.04,
+        "hold_max": 20
+      },
+      "status": "ACTIVE",
+      "test_result": {
+        "bull": {
+          "win_rate": 0.625,
+          "pf": 4.21,
+          "cagr": 0.499,
+          "trades": 8
+        },
+        "bear": {
+          "win_rate": 0.571,
+          "pf": 2.14,
+          "cagr": 0.282,
+          "trades": 14
+        },
+        "total": {
+          "win_rate": 0.586,
+          "pf": 2.96,
+          "cagr": 0.394,
+          "max_dd": 0.227
+        }
+      },
+      "verdict": "✅ 最优策略，全市场通用",
+      "when_to_use": "任何市场环境",
+      "priority": 1
+    },
+    {
+      "id": "STR-002",
+      "title": "BTC RSI均值回归(合约双向)",
+      "symbol": "BTC-USD",
+      "type": "futures",
+      "direction": "both",
+      "params": {
+        "rsi_buy": 30,
+        "rsi_sell": 70,
+        "stop_pct": 0.04,
+        "hold_max": 20
+      },
+      "status": "ACTIVE",
+      "test_result": {
+        "bull": {
+          "win_rate": 0.308,
+          "pf": 0.87,
+          "cagr": -0.195,
+          "trades": 26,
+          "long_pnl": 0.484,
+          "short_pnl": -0.614
+        },
+        "bear": {
+          "win_rate": 0.556,
+          "pf": 1.82,
+          "cagr": 0.395,
+          "trades": 18,
+          "long_pnl": 0.258,
+          "short_pnl": 0.139
+        },
+        "total": {
+          "win_rate": 0.431,
+          "pf": 1.28,
+          "cagr": 0.139,
+          "max_dd": 0.579
+        }
+      },
+      "verdict": "⚠️ 熊市用，不适合牛市（做空送钱）",
+      "when_to_use": "熊市(BEAR)环境",
+      "priority": 2
+    },
+    {
+      "id": "STR-003",
+      "title": "ETH BB趋势跟随(合约双向)",
+      "symbol": "ETH-USD",
+      "type": "futures",
+      "direction": "both",
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "stop_atr": 1.5
+      },
+      "status": "ACTIVE",
+      "test_result": {
+        "bull": {
+          "win_rate": 0.5,
+          "pf": 2.46,
+          "cagr": 0.477,
+          "trades": 10,
+          "long_pnl": 0.544,
+          "short_pnl": -0.031
+        },
+        "bear": {
+          "win_rate": 0.4,
+          "pf": 1.13,
+          "cagr": -0.004,
+          "trades": 15,
+          "long_pnl": 0.17,
+          "short_pnl": -0.068
+        },
+        "total": {
+          "win_rate": 0.4,
+          "pf": 1.5,
+          "cagr": 0.197,
+          "max_dd": 0.506
+        }
+      },
+      "verdict": "✅ 牛市专用，熊市不适用",
+      "when_to_use": "牛市(BULL)环境",
+      "priority": 3
+    },
+    {
+      "id": "STR-004",
+      "title": "SOL BB趋势跟随(现货)",
+      "symbol": "SOL-USD",
+      "type": "spot",
+      "direction": "long",
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "stop_atr": 1.5
+      },
+      "status": "ACTIVE",
+      "test_result": {
+        "bull": {
+          "win_rate": 0.571,
+          "pf": 3.2,
+          "cagr": 0.678,
+          "trades": 14
+        },
+        "bear": {
+          "win_rate": 0.5,
+          "pf": 2.1,
+          "cagr": 0.265,
+          "trades": 6
+        },
+        "total": {
+          "win_rate": 0.618,
+          "pf": 2.97,
+          "cagr": 0.265,
+          "max_dd": 0.269
+        }
+      },
+      "verdict": "✅ SOL现货最优策略",
+      "when_to_use": "牛市(BULL)环境SOL现货",
+      "priority": 4
+    },
+    {
+      "id": "STR-005",
+      "title": "SOL BB趋势跟随(合约)",
+      "symbol": "SOL-USD",
+      "type": "futures",
+      "direction": "both",
+      "status": "ELIMINATED",
+      "elimination_reason": "全周期年化-12.2%，最大DD=71.5%，双向都亏",
+      "notes": "SOL合约是所有测试中最差的策略，完全不做"
+    },
+    {
+      "id": "STR-006",
+      "title": "ETH RSI均值回归(现货)",
+      "symbol": "ETH-USD",
+      "type": "spot",
+      "direction": "long",
+      "status": "ELIMINATED",
+      "elimination_reason": "熊市PF=1.15<1.5，胜率46.1%不足",
+      "notes": "ETH RSI熊市表现差"
+    },
+    {
+      "id": "STR-007",
+      "title": "SOL RSI均值回归(现货)",
+      "symbol": "SOL-USD",
+      "type": "spot",
+      "direction": "long",
+      "status": "ELIMINATED",
+      "elimination_reason": "胜率34.7%，PF=0.94<1，负收益",
+      "notes": "SOL RSI完全无效"
+    },
+    {
+      "id": "STR-008",
+      "title": "BNB BB趋势(现货)",
+      "symbol": "BNB-USD",
+      "type": "spot",
+      "direction": "long",
+      "status": "ELIMINATED",
+      "elimination_reason": "交易次数太少(8笔)，样本不足",
+      "notes": "BNB数据量不够，无法得出统计结论"
+    }
+  ],
+  "progress": {
+    "total": 8,
+    "active": 4,
+    "eliminated": 4
+  },
+  "regime_guide": {
+    "BULL": {
+      "description": "价格>MA20>MA60，多头主导",
+      "recommended_strategies": [
+        {
+          "strategy": "STR-001",
+          "type": "spot",
+          "reason": "BTC RSI现货，全周期最强"
+        },
+        {
+          "strategy": "STR-003",
+          "type": "futures",
+          "reason": "ETH BB合约牛市+47.7%年化"
+        },
+        {
+          "strategy": "STR-004",
+          "type": "spot",
+          "reason": "SOL BB现货牛市+67.8%年化"
+        }
+      ],
+      "avoid": [
+        "STR-002",
+        "STR-005"
+      ],
+      "notes": "牛市做空是送钱（BTC空头-61%）"
+    },
+    "BEAR": {
+      "description": "价格<MA20<MA60，空头主导",
+      "recommended_strategies": [
+        {
+          "strategy": "STR-001",
+          "type": "spot",
+          "reason": "BTC RSI现货熊市+28.2%年化"
+        },
+        {
+          "strategy": "STR-002",
+          "type": "futures",
+          "reason": "BTC RSI合约熊市+39.5%，多空都赚"
+        }
+      ],
+      "avoid": [
+        "STR-003",
+        "STR-005"
+      ],
+      "notes": "ETH BB和SOL BB熊市表现差或样本不足"
+    },
+    "RANGE": {
+      "description": "MA20纠缠，震荡市场",
+      "recommended_strategies": [
+        {
+          "strategy": "STR-001",
+          "type": "spot",
+          "reason": "RSI均值回归最适合震荡市"
+        }
+      ],
+      "avoid": [
+        "STR-002",
+        "STR-003",
+        "STR-004",
+        "STR-005"
+      ],
+      "notes": "震荡市只做BTC RSI现货，超买超卖时入场"
+    }
+  }
+}

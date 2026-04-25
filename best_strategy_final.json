@@ -1,0 +1,25 @@
+{
+  "strategy": "AVAX 1H RSI+ADX SHORT",
+  "timeframe": "1H",
+  "direction": "short_only",
+  "entry": "RSI>65 AND ADX>15",
+  "leverage": 3,
+  "position_size": 0.1,
+  "stop_loss": 0.05,
+  "take_profit": 0.1,
+  "expected": {
+    "annual_trades": 93.82597143806045,
+    "win_rate": 30.361757105943155,
+    "rr": 2.3333333333333313,
+    "total_pnl_strategy": 133.33333333332564,
+    "total_pnl_account": 478.5714285714261,
+    "max_dd_strategy": 1071.428571428576,
+    "max_dd_account": 88.57142857142887,
+    "avg_holding_hours": 80.94186046511628
+  },
+  "coins": [
+    "AVAX",
+    "DOT",
+    "ETH"
+  ]
+}

@@ -1,0 +1,127 @@
+{
+  "long": {
+    "params": {
+      "rsi_entry": 45,
+      "adx_thresh": 20,
+      "hold_bars": 24,
+      "max_pos": 0.8
+    },
+    "summary": {
+      "signal_count": 327,
+      "win_rate": 0.2416,
+      "avg_return": -0.002543,
+      "profit_factor": 0.23,
+      "win_loss_ratio": 0.737
+    },
+    "patterns": [
+      {
+        "rsi_range": "30-35",
+        "adx_range": "30-100",
+        "count": 7,
+        "win_rate": 0.1429,
+        "avg_return": -0.000235,
+        "profit_factor": 0.88,
+        "win_loss_ratio": 5.29
+      },
+      {
+        "rsi_range": "35-40",
+        "adx_range": "20-25",
+        "count": 9,
+        "win_rate": 0.1111,
+        "avg_return": -0.001909,
+        "profit_factor": 0.05,
+        "win_loss_ratio": 0.381
+      },
+      {
+        "rsi_range": "35-40",
+        "adx_range": "25-30",
+        "count": 10,
+        "win_rate": 0.3,
+        "avg_return": -0.004121,
+        "profit_factor": 0.21,
+        "win_loss_ratio": 0.498
+      },
+      {
+        "rsi_range": "35-40",
+        "adx_range": "30-100",
+        "count": 29,
+        "win_rate": 0.2414,
+        "avg_return": -0.003742,
+        "profit_factor": 0.12,
+        "win_loss_ratio": 0.367
+      },
+      {
+        "rsi_range": "40-45",
+        "adx_range": "20-25",
+        "count": 46,
+        "win_rate": 0.3913,
+        "avg_return": -0.001875,
+        "profit_factor": 0.3,
+        "win_loss_ratio": 0.47
+      },
+      {
+        "rsi_range": "40-45",
+        "adx_range": "25-30",
+        "count": 68,
+        "win_rate": 0.1618,
+        "avg_return": -0.002536,
+        "profit_factor": 0.24,
+        "win_loss_ratio": 1.235
+      },
+      {
+        "rsi_range": "40-45",
+        "adx_range": "30-100",
+        "count": 148,
+        "win_rate": 0.2365,
+        "avg_return": -0.002636,
+        "profit_factor": 0.21,
+        "win_loss_ratio": 0.683
+      }
+    ]
+  },
+  "short": {
+    "params": {
+      "rsi_entry": 55,
+      "adx_thresh": 30,
+      "hold_bars": 12,
+      "max_pos": 0.2,
+      "di_margin": 5
+    },
+    "summary": {
+      "signal_count": 238,
+      "win_rate": 0.3235,
+      "avg_return": -0.000214,
+      "profit_factor": 0.55,
+      "win_loss_ratio": 1.146
+    },
+    "patterns": [
+      {
+        "rsi_range": "55-60",
+        "adx_range": "30-100",
+        "count": 181,
+        "win_rate": 0.3039,
+        "avg_return": -0.000241,
+        "profit_factor": 0.44,
+        "win_loss_ratio": 1.004
+      },
+      {
+        "rsi_range": "60-65",
+        "adx_range": "30-100",
+        "count": 49,
+        "win_rate": 0.3673,
+        "avg_return": -9.5e-05,
+        "profit_factor": 0.84,
+        "win_loss_ratio": 1.44
+      },
+      {
+        "rsi_range": "65-70",
+        "adx_range": "30-100",
+        "count": 6,
+        "win_rate": 0.5,
+        "avg_return": 0.000338,
+        "profit_factor": 2.21,
+        "win_loss_ratio": 2.211
+      }
+    ]
+  }
+}

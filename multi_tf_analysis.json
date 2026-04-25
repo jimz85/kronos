@@ -1,0 +1,40 @@
+{
+  "coin": "BTC-USD",
+  "timestamp": "2026-04-13T23:22:59.615202",
+  "timeframes": {
+    "15m": {
+      "price": 71900.5859375,
+      "rsi": 67.06235353989581,
+      "trend": "UP",
+      "bb_position": 82.20071539095181,
+      "bull_bear_score": 5
+    },
+    "1h": {
+      "price": 71900.5859375,
+      "rsi": 60.20311623307473,
+      "trend": "RANGE",
+      "bb_position": 94.72535858973906,
+      "bull_bear_score": -5
+    },
+    "4h": {
+      "price": 71900.5859375,
+      "rsi": 43.103780938626024,
+      "trend": "RANGE",
+      "bb_position": 45.78613383541514,
+      "bull_bear_score": -10
+    },
+    "1d": {
+      "price": 71900.5859375,
+      "rsi": 68.11347346641837,
+      "trend": "RANGE",
+      "bb_position": 77.82693158394292,
+      "bull_bear_score": 2
+    }
+  },
+  "summary": {
+    "trend_direction": "RANGE",
+    "confirmation": 10.0,
+    "score": -2.7000000000000006,
+    "primary_signal": "NEUTRAL"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-04-24T21:05:33.550861",
+  "generated_by": "MiniMax-M2.7",
+  "next_update_at": "1777039533550",
+  "market_regime": "volatile",
+  "regime_confidence": 0.78,
+  "btc_trend": "bull",
+  "eth_trend": "neutral",
+  "overall_confidence": 0.45,
+  "factor_status": {
+    "vol_ratio": {
+      "status": "active",
+      "ic": 0.7,
+      "confidence": 0.5,
+      "note": "BTC/ETH/LINK/AVAX成交量高位，但趋势为down → 量价背离警示"
+    },
+    "rsi": {
+      "status": "active",
+      "ic": 0.82,
+      "confidence": 0.5,
+      "note": "4小时RSI极端超买（BTC 77.9/ETH 72.2/SOL 76.0/ADA 77.6/LINK 77.1/AVAX 67.6），短周期与长周期严重劈叉，RSI权重应大幅提升"
+    },
+    "adx": {
+      "status": "degraded",
+      "ic": 0.35,
+      "confidence": 0.5,
+      "note": "BTC ADX=24.7较强，其余币种ADX偏低（SOL 11.5/DOT 11.8/ETH 13.3），趋势信号不一致，ADX权重应降低"
+    },
+    "sentiment": {
+      "status": "bearish",
+      "ic": 0.0,
+      "confidence": 0.65,
+      "note": "BTC Metaplanet增持利好已被消化；ETH 43K ETH抛压悬顶；SOL负面新闻；市场对利好反应迟钝但对利空敏感 → 情绪偏空"
+    },
+    "flow": {
+      "status": "neutral",
+      "ic": 0.0,
+      "confidence": 0.5,
+      "note": "链上数据不可用，但24h涨跌整体偏震荡（AVAX+1.20% DOGE+1.53%涨幅最大），缺乏明确方向性资金流"
+    }
+  },
+  "primary_direction": "short",
+  "direction_confidence": 0.62,
+  "forbidden_actions": [
+    "long_btc_now",
+    "long_eth_now",
+    "long_sol_now",
+    "long_any_at_current_levels"
+  ],
+  "current_positions": [],
+  "total_exposure_pct": 0.0,
+  "max_total_leverage": 1.5,
+  "strategic_hint": "所有币种4小时RSI均处于超买区间（67-78），且趋势统一向下，这是教科书级别的短期回调信号。中长期牛市背景下应耐心等待RSI回归40-50区间（4小时级别）再布局多单。日内策略以高空为主，突破4h RSI 70的币种可轻仓试空，目标RSI回归50附近（对应约8-12%空间），止损设2%。当前无持仓是正确选择，继续保持空仓等待。",
+  "confidence": 0.45,
+  "emergency_stop": {
+    "level": "watch",
+    "reason": "4小时RSI极端超买集中在7个主流币种，历史上类似情形后均有8-15%回调；但中长期牛市框架未被破坏（BTC未跌破关键支撑），仅需观察无需紧急行动。",
+    "affected_coins": [],
+    "action": "none",
+    "until_ts": 0
+  },
+  "audit_id": "ctx_20260424210533"
+}

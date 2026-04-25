@@ -1,0 +1,57 @@
+{
+  "ETH": {
+    "coin": "ETH",
+    "total_return_pct": 740.3,
+    "n_trades": 725,
+    "win_rate": 31.4,
+    "avg_win_pct": 50.94,
+    "avg_loss_pct": -21.88,
+    "max_drawdown_pct": -76.14,
+    "trades_per_day": 0.99,
+    "final_capital": 84030.15
+  },
+  "DOGE": {
+    "coin": "DOGE",
+    "total_return_pct": 29.59,
+    "n_trades": 470,
+    "win_rate": 31.9,
+    "avg_win_pct": 56.91,
+    "avg_loss_pct": -26.59,
+    "max_drawdown_pct": -91.88,
+    "trades_per_day": 0.64,
+    "final_capital": 12958.75
+  },
+  "BNB": {
+    "coin": "BNB",
+    "total_return_pct": -0.18,
+    "n_trades": 5,
+    "win_rate": 40.0,
+    "avg_win_pct": 8.59,
+    "avg_loss_pct": -5.79,
+    "max_drawdown_pct": -17.66,
+    "trades_per_day": 0.01,
+    "final_capital": 9981.63
+  },
+  "AVAX": {
+    "coin": "AVAX",
+    "total_return_pct": -65.27,
+    "n_trades": 7,
+    "win_rate": 0.0,
+    "avg_win_pct": 0,
+    "avg_loss_pct": -9.32,
+    "max_drawdown_pct": -66.27,
+    "trades_per_day": 0.01,
+    "final_capital": 3472.78
+  },
+  "ADA": {
+    "coin": "ADA",
+    "total_return_pct": -4.14,
+    "n_trades": 28,
+    "win_rate": 32.1,
+    "avg_win_pct": 35.61,
+    "avg_loss_pct": -17.09,
+    "max_drawdown_pct": -62.06,
+    "trades_per_day": 0.04,
+    "final_capital": 9585.64
+  }
+}

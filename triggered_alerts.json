@@ -1,0 +1,18 @@
+[
+  {
+    "time": "2026-04-13T22:48:59.212974",
+    "type": "SELL",
+    "strategy": "BTC-RSI-HF",
+    "price": 71993.7421875,
+    "rsi": 68.31872213164536,
+    "regime": "BULL"
+  },
+  {
+    "time": "2026-04-13T23:20:03.782999",
+    "type": "SELL",
+    "strategy": "BTC-RSI-HF",
+    "price": 71909.7265625,
+    "rsi": 68.13373035652151,
+    "regime": "BULL"
+  }
+]

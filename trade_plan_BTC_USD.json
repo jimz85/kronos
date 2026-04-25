@@ -1,0 +1,51 @@
+{
+  "coin": "BTC-USD",
+  "timestamp": "2026-04-13 23:55",
+  "signal": "WAIT",
+  "direction": "LONG",
+  "confidence": 100.0,
+  "score": -1.2500000000000002,
+  "timeframes": {
+    "15m": {
+      "price": "$71792",
+      "rsi": "66.5",
+      "trend": "UP",
+      "bb_position": "71%",
+      "atr_pct": "0.38%",
+      "score": 15
+    },
+    "1h": {
+      "price": "$71792",
+      "rsi": "58.3",
+      "trend": "RANGE",
+      "bb_position": "90%",
+      "atr_pct": "0.51%",
+      "score": -5
+    },
+    "4h": {
+      "price": "$71792",
+      "rsi": "42.1",
+      "trend": "RANGE",
+      "bb_position": "43%",
+      "atr_pct": "0.97%",
+      "score": -5
+    },
+    "1d": {
+      "price": "$71792",
+      "rsi": "67.9",
+      "trend": "RANGE",
+      "bb_position": "77%",
+      "atr_pct": "3.05%",
+      "score": 0
+    }
+  },
+  "trade_plan": {
+    "action": "\u89c2\u671b",
+    "reason": "\u591a\u5468\u671f\u65b9\u5411\u4e0d\u4e00\u81f4\uff0c\u7b49\u5f85\u786e\u8ba4",
+    "entry": null,
+    "stop": null,
+    "target": null,
+    "leverage": null,
+    "position_size": null
+  }
+}

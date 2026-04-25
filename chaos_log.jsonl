@@ -1,0 +1,9 @@
+{"ts": "2026-04-25T13:53:47.969856", "scenario": "network_blackout", "status": "recovering", "healthy_history": [], "error": null, "dry_run": true}
+{"ts": "2026-04-25T13:53:53.986780", "scenario": "partial_fill", "status": "recovering", "healthy_history": [], "error": null, "dry_run": true}
+{"ts": "2026-04-25T13:53:58.449796", "scenario": "kill_nine", "status": "recovering", "healthy_history": [], "error": null, "dry_run": true}
+{"ts": "2026-04-25T13:55:19.370637", "scenario": "network_blackout", "status": "recovering", "healthy_history": [], "error": null, "dry_run": true}
+{"ts": "2026-04-25T13:55:19.371075", "scenario": "partial_fill", "status": "recovering", "healthy_history": [], "error": null, "dry_run": true}
+{"ts": "2026-04-25T13:55:19.371421", "scenario": "kill_nine", "status": "recovering", "healthy_history": [], "error": null, "dry_run": true}
+{"ts": "2026-04-25T14:00:52.477068", "scenario": "network_blackout", "status": "verified", "healthy_history": [true], "error": null, "dry_run": true}
+{"ts": "2026-04-25T14:00:52.477696", "scenario": "partial_fill", "status": "verified", "healthy_history": [true], "error": null, "dry_run": true}
+{"ts": "2026-04-25T14:00:52.477799", "scenario": "kill_nine", "status": "verified", "healthy_history": [true], "error": null, "dry_run": true}

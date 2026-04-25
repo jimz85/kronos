@@ -1,0 +1,195 @@
+{
+  "_comment": "Kronos 币种策略配置 v1.2 | 2026-04-23 | 新增4H CCI策略",
+  "_description": "每个币种的最优策略配置，来源：10币种×多策略×多周期交叉验证 + ralph_autoresearch Walk-Forward验证",
+  "_confidence_notes": "数据范围：2025-08~2026-04（4H 240天 + 1H 60天）。AVAX/DOT已排除。ETH 4H CCI为最佳策略。SOL/DOGE 4H CCI超卖反转胜率86-100%。",
+  "coins": [
+    {
+      "symbol": "DOGE",
+      "optimal_strategy": "RSI_MR",
+      "timeframe": "4H",
+      "confidence": 0.9,
+      "signal": "RSI < 30 AND ADX > 15",
+      "exit": "RSI > 70",
+      "sharpe": 7.94,
+      "winrate": "82.7%",
+      "max_drawdown": "20.3%",
+      "trades": 130,
+      "alpha_vs_bh": "+201%",
+      "notes": "DOGE最优策略：RSI均值回归，Sharpe 7.94，胜率82.7%，Walk-Forward验证通过。8年历史正期望。 [已排除]",
+      "excluded": false,
+      "excluded_reason": "WLR=0.71亏损-$142K，vol因子证伪"
+    },
+    {
+      "symbol": "ADA",
+      "optimal_strategy": "RSI_MR",
+      "timeframe": "4H",
+      "confidence": 0.9,
+      "signal": "RSI < 30 AND ADX > 20 AND BB_position < 15",
+      "exit": "RSI > 70",
+      "sharpe": 8.03,
+      "winrate": "85.3%",
+      "max_drawdown": "27.8%",
+      "trades": 122,
+      "alpha_vs_bh": "+154%",
+      "notes": "ADA最优策略：布林带趋势跟踪，Sharpe 8.03，胜率85.3%，Walk-Forward验证通过。8年历史正期望。",
+      "excluded": false
+    },
+    {
+      "symbol": "XRP",
+      "optimal_strategy": "RSI_EMAn",
+      "timeframe": "1H",
+      "confidence": 0.8,
+      "signal": "RSI < 35 AND EMA_diff > 0 AND ADX > 15",
+      "exit": "RSI > 65",
+      "sharpe": 2.77,
+      "winrate": "86%",
+      "max_drawdown": "6.3%",
+      "trades": 7,
+      "alpha_vs_bh": "+11.4%",
+      "notes": "XRP的新发现！RSI+EMA共振胜率86%，夏普2.77。测试期间B&H为-3%，策略逆势+8.4%。",
+      "excluded": false
+    },
+    {
+      "symbol": "BNB",
+      "optimal_strategy": "RSI_EMAn",
+      "timeframe": "1H",
+      "confidence": 0.8,
+      "signal": "RSI < 35 AND EMA_diff > 0 AND ADX > 15",
+      "exit": "RSI > 65",
+      "sharpe": 2.28,
+      "winrate": "83%",
+      "max_drawdown": "2.9%",
+      "trades": 6,
+      "alpha_vs_bh": "+3.6%",
+      "notes": "BNB的RSI+EMA共振胜率83%，最大回撤仅2.9%。低回撤高胜率策略。",
+      "excluded": false
+    },
+    {
+      "symbol": "AVAX",
+      "optimal_strategy": "VOL_BRK",
+      "timeframe": "4H",
+      "confidence": 0.85,
+      "signal": "vol_ratio > 2.0 AND adx > 20",
+      "exit": "vol_ratio < 1.0",
+      "sharpe": 1.84,
+      "winrate": "57%",
+      "max_drawdown": "2.4%",
+      "trades": 7,
+      "alpha_vs_bh": "+75.9%",
+      "notes": "熊市B&H亏62%，VOL_BRK逆势赚13.8%！4H是AVAX最佳周期。VOL_BRK信号少但质量极高。",
+      "excluded": true,
+      "excluded_reason": "Walk-Forward：8窗口全负收益"
+    },
+    {
+      "symbol": "ETH",
+      "optimal_strategy": "VOL_BRK",
+      "timeframe": "4H",
+      "confidence": 0.65,
+      "signal": "vol_ratio > 2.0 AND adx > 20",
+      "exit": "vol_ratio < 1.0",
+      "sharpe": 1.32,
+      "winrate": "100%",
+      "max_drawdown": "0.6%",
+      "trades": 3,
+      "alpha_vs_bh": "+51.7%",
+      "notes": "胜率100%但仅3次交易，置信度较低。ETH的VOL_BRK需更多数据验证。",
+      "excluded": true,
+      "excluded_reason": "Walk-Forward：8窗口全负，熊市数据"
+    },
+    {
+      "symbol": "DOT",
+      "optimal_strategy": "RSI_VOL",
+      "timeframe": "4H",
+      "confidence": 0.7,
+      "signal": "RSI < 35 AND vol_ratio > 1.5 AND ADX > 15",
+      "exit": "RSI > 65",
+      "sharpe": 0.22,
+      "winrate": "63%",
+      "max_drawdown": "42.0%",
+      "trades": 19,
+      "alpha_vs_bh": "+66.5%",
+      "notes": "DOT交易最多（19次），RSI+VOL混用。回撤42%偏高，需收紧止损。",
+      "excluded": true,
+      "excluded_reason": "Sharpe<1.0验证失败"
+    },
+    {
+      "symbol": "SOL",
+      "optimal_strategy": "RSI_MR",
+      "timeframe": "1H",
+      "confidence": 0.85,
+      "signal": "RSI < 30 AND ADX > 15",
+      "exit": "RSI > 70",
+      "sharpe": 1.45,
+      "winrate": "71%",
+      "max_drawdown": "12.0%",
+      "trades": 22,
+      "alpha_vs_bh": "+7.3%",
+      "notes": "SOL的RSI均值回归稳健，22次交易胜率71%。当前实盘持仓。",
+      "excluded": false
+    },
+    {
+      "symbol": "BTC",
+      "optimal_strategy": "RSI_MR",
+      "timeframe": "1H",
+      "confidence": 0.9,
+      "signal": "RSI < 30 AND ADX > 15",
+      "exit": "RSI > 70",
+      "sharpe": 1.27,
+      "winrate": "69%",
+      "max_drawdown": "10.2%",
+      "trades": 17,
+      "alpha_vs_bh": "-5.2%",
+      "notes": "BTC的标准策略。跑输B&H但更稳定（夏普1.27）。B&H是+11.5%，策略+6.3%。",
+      "excluded": true,
+      "excluded_reason": "Walk-Forward：做空负收益，方向不明确"
+    },
+    {
+      "symbol": "LINK",
+      "optimal_strategy": "RSI_MR",
+      "timeframe": "1H",
+      "confidence": 0.5,
+      "signal": "RSI < 30 AND ADX > 15",
+      "exit": "RSI > 70",
+      "sharpe": 0.8,
+      "winrate": "68%",
+      "max_drawdown": "8.0%",
+      "trades": 17,
+      "alpha_vs_bh": "+4.0%",
+      "notes": "LINK数据较少（4H触发0次交易）。1H有17次交易，RSI_MR有效但置信度低。需更长数据验证。 [已排除]",
+      "excluded": true,
+      "excluded_reason": "数据空白"
+    }
+  ],
+  "strategy_descriptions": {
+    "BB_TREND": "布林带趋势跟踪：RSI<30 + ADX>20 + BB下轨位置<15买入。适合ADA等小币种，Sharpe 8.03。",
+    "VOL_BRK": "成交量突破策略：vol_ratio>2× AND ADX>20买入，vol<MA平仓。适合小币和熊市。",
+    "RSI_EMAn": "RSI+EMA共振：RSI<35 + EMA多头排列 + ADX>15买入。适合BNB/XRP等中等市值币。",
+    "RSI_VOL": "RSI+成交量混合：RSI<35 + vol_ratio>1.5 + ADX>15买入。适合DOT。",
+    "RSI_MR": "RSI均值回归：RSI<30 + ADX>15买入，RSI>70卖出。适合DOGE/BTC/SOL/LINK等主流币。"
+  },
+  "market_environment_rules": {
+    "bear_market": {
+      "btc_condition": "price < BTC_MA200",
+      "recommended_strategies": [
+        "VOL_BRK"
+      ],
+      "description": "熊市（大币跌穿MA200）：倾向VOL_BRK（大波动突破），避免RSI_MR抄底"
+    },
+    "bull_market": {
+      "btc_condition": "price > BTC_MA200 AND RSI_4H < 70",
+      "recommended_strategies": [
+        "RSI_MR",
+        "RSI_EMAn"
+      ],
+      "description": "牛市：倾向RSI均值回归策略，胜率更高"
+    },
+    "recovery": {
+      "btc_condition": "price > BTC_MA200 AND RSI_4H > 70",
+      "recommended_strategies": [
+        "VOL_BRK",
+        "RSI_MR"
+      ],
+      "description": "反弹期：高位RSI避免追涨，用VOL_BRK或空头保护"
+    }
+  }
+}
