@@ -170,6 +170,7 @@ MAX_POSITION = 0.30
 STOP_LOSS = 0.05
 TAKE_PROFIT = 0.20
 LEV = 3
+MAX_SINGLE_TRADE_PCT = 0.05   # 单笔最多使用5%账户权益
 
 import yfinance as yf
 import numpy as np
@@ -558,6 +559,16 @@ def _okx_request_with_retry(method, url, headers=None, data=None,
     返回: (success: bool, response: requests.Response, error: str or None)
     """
     import time
+
+    def _backoff(attempt: int, max_retries: int, reason: str) -> bool:
+        """Returns True if should retry, False if max retries exceeded."""
+        if attempt >= max_retries:
+            return False
+        wait = 2 ** attempt
+        _pilot_logger.warning(f'  ⚠️ {reason}, waiting {wait}s before retry')
+        time.sleep(wait)
+        return True
+
     session = requests  # requests 本身线程安全（每个请求独立socket）
 
     for attempt in range(1, max_retries + 1):
@@ -587,40 +598,27 @@ def _okx_request_with_retry(method, url, headers=None, data=None,
 
             # 网络层错误（超时/连接断开）
             if resp.status_code in (599,):  # requests internal "connection error" code
-                if attempt < max_retries:
-                    wait = 2 ** attempt  # 指数退避: 2s, 4s
-                    _pilot_logger.warning(
-                        f'  ⚠️ Network error (attempt {attempt}/{max_retries}), '
-                        f'waiting {wait}s before retry')
-                    time.sleep(wait)
-                    continue
-                return False, None, f'Network error after {max_retries} retries'
+                if not _backoff(attempt, max_retries, f'Network error (attempt {attempt}/{max_retries})'):
+                    return False, None, f'Network error after {max_retries} retries'
+                continue
 
             return True, resp, None
 
         except requests.exceptions.Timeout:
-            if attempt < max_retries:
-                wait = 2 ** attempt
-                _pilot_logger.warning(
-                    f'  ⚠️ Request timeout (attempt {attempt}/{max_retries}), '
-                    f'waiting {wait}s before retry')
-                time.sleep(wait)
-                continue
-            return False, None, f'Request timeout after {max_retries} retries'
+            if not _backoff(attempt, max_retries, f'Request timeout (attempt {attempt}/{max_retries})'):
+                return False, None, f'Request timeout after {max_retries} retries'
+            continue
 
-        except requests.exceptions.ConnectionError as e:
-            if attempt < max_retries:
-                wait = 2 ** attempt
-                _pilot_logger.warning(
-                    f'  ⚠️ Connection error (attempt {attempt}/{max_retries}), '
-                    f'waiting {wait}s before retry: {e}')
-                time.sleep(wait)
-                continue
-            return False, None, f'Connection error after {max_retries} retries: {e}'
+        except requests.exceptions.ConnectionError:
+            # 不暴露{e}，避免泄露内部路径信息
+            if not _backoff(attempt, max_retries, f'Connection error (attempt {attempt}/{max_retries})'):
+                return False, None, f'Connection error after {max_retries} retries'
+            continue
 
-        except Exception as e:
-            # 未知错误，直接放弃
-            return False, None, f'Unexpected error: {e}'
+        except Exception:
+            # 不捕获KeyboardInterrupt/SystemExit，只处理编程错误
+            # 不暴露异常详情，避免泄露文件路径/变量名
+            return False, None, f'Unexpected error: <{type(e).__name__}>'
 
     return False, None, 'Max retries exceeded'
 
@@ -650,6 +648,17 @@ def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20,
 
     try:
         instId = f'{coin}-USDT-SWAP'
+
+        # P2 Fix: 单笔交易限额（不超过账户5%权益）
+        from kronos_utils import get_account_balance
+        balance_info = get_account_balance()
+        # 获取当前市场价格
+        if price is None:
+            prices = get_okx_prices()
+            price = prices.get(coin, 0)
+        if price > 0 and balance_info.get('totalEq', 0) > 0:
+            max_size_by_cap = int((float(balance_info.get('totalEq', 0)) * MAX_SINGLE_TRADE_PCT) / price * lev)
+            size_contracts = min(size_contracts, max_size_by_cap)
 
         # Step 1: 下市价单（杠杆在订单里直接指定，不单独set-leverage）
         # posSide: long_short_mode需要，net_mode下会忽略
@@ -704,19 +713,19 @@ def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20,
         try:
             order_result = resp.json()
         except:
-            _pilot_logger.error(f'  JSON解析失败: status={resp.status_code} text={resp.text[:200]}')
+            _pilot_logger.error(f'  JSON解析失败: status={resp.status_code}')
             return {'success': False, 'code': 'parse_error', 'entry_price': 0,
-                    'sl': {'success': False, 'error': resp.text[:100]},
-                    'tp': {'success': False, 'error': resp.text[:100]}}
+                    'sl': {'success': False, 'error': 'Request failed'},
+                    'tp': {'success': False, 'error': 'Request failed'}}
 
         code = order_result.get('code', '')
         direction_str = '做多' if side == 'buy' else '做空'
 
         if code != '0':
-            _pilot_logger.error(f'  OKX实盘下单失败: {direction_str} {coin} code={code} msg={order_result.get("msg","")}')
+            _pilot_logger.error(f'  OKX实盘下单失败: {direction_str} {coin} code={code}')
             return {'success': False, 'code': code, 'entry_price': 0,
-                    'sl': {'success': False, 'error': order_result.get('msg', '')},
-                    'tp': {'success': False, 'error': order_result.get('msg', '')}}
+                    'sl': {'success': False, 'error': 'Order failed'},
+                    'tp': {'success': False, 'error': 'Order failed'}}
 
         # Step 3: 从订单结果获取实际成交价
         try:
@@ -770,10 +779,10 @@ def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20,
                 'position_closed': False}
 
     except Exception as e:
-        _pilot_logger.error(f'  OKX下单失败: {e}')
+        _pilot_logger.error(f'  OKX下单失败: {type(e).__name__}')
         return {'success': False, 'code': 'exception', 'entry_price': 0,
-                'sl': {'success': False, 'error': str(e)},
-                'tp': {'success': False, 'error': str(e)}}
+                'sl': {'success': False, 'error': f'Network error: {type(e).__name__}'},
+                'tp': {'success': False, 'error': f'Network error: {type(e).__name__}'}}
 
 
 def _okx_market_close(instId, existing_side, size_contracts):
