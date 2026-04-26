@@ -1205,6 +1205,12 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
     """
     log = load_paper_log()
 
+    # 导入熔断器函数（用于记录交易结果）
+    try:
+        from kronos_heartbeat import record_trade_outcome
+    except ImportError:
+        record_trade_outcome = None
+
     # 获取真实余额（用于计算仓位）
     try:
         from real_monitor import get_account_balance
@@ -1365,7 +1371,8 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
             entry_price_real,
             entry_price_real * (1 - sl_pct),
             entry_price_real * (1 + tp_pct)))
-        record_trade_outcome(signal['coin'], 0, 'opened')
+        if record_trade_outcome:
+            record_trade_outcome(signal['coin'], 0, 'opened')
     else:
         position_closed = result.get('position_closed', False)
         sl_failed = not sl_info.get('success', True)
