@@ -7,8 +7,9 @@ import pandas as pd
 import numpy as np
 import json, os, time, hmac, hashlib, requests
 from datetime import datetime, timezone
+from pathlib import Path
 
-DATA_DIR = '/Users/jimingzhang/Desktop/crypto_data_Pre5m'
+DATA_DIR = str(Path.home() / 'Desktop' / 'crypto_data_Pre5m')
 OKX_API_KEY = os.getenv('OKX_API_KEY', '')
 OKX_SECRET = os.getenv('OKX_SECRET', '')
 OKX_PASSPHRASE = os.getenv('OKX_PASSPHRASE', '')

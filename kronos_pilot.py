@@ -64,7 +64,7 @@ def _ts():
         _okx_ts_offset = 0
     # OKX实盘需要ISO8601格式（不是Unix毫秒）
     from datetime import datetime
-    return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    return (datetime.utcnow() + timedelta(milliseconds=_okx_ts_offset)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
 # 加载 hermes 主目录的 .env
 _HERMES_ENV = pathlib.Path.home() / '.hermes' / '.env'
@@ -86,6 +86,11 @@ OKX_PASSPHRASE = os.getenv('OKX_PASSPHRASE', '')
 # 判断逻辑：API Key以特定前缀开头（如'8aba4d'）= 模拟盘API Key
 _is_sim_key = OKX_API_KEY.startswith('8aba4d') if OKX_API_KEY else False
 DEMO_MODE = (not OKX_API_KEY) or _is_sim_key
+
+# 启动时验证必需的环境变量
+if not OKX_API_KEY or not OKX_SECRET:
+    print("❌ 错误: OKX_API_KEY 和 OKX_SECRET 环境变量必须设置")
+    sys.exit(1)
 
 # OKX账户模式缓存（避免每次API调用）
 _okx_pos_mode = None
@@ -192,9 +197,15 @@ def load_blacklist():
         save_blacklist()
     return _blacklist
 
+def _atomic_write_json(path, data):
+    """原子写入JSON：先写.temp文件，再replace"""
+    temp_path = path + '.tmp'
+    with open(temp_path, 'w') as f:
+        json.dump(data, f)
+    os.replace(temp_path, path)
+
 def save_blacklist():
-    with open(BLACKLIST_FILE, 'w') as f:
-        json.dump(_blacklist, f)
+    _atomic_write_json(BLACKLIST_FILE, _blacklist)
 
 def is_blacklisted(symbol):
     """
@@ -339,12 +350,10 @@ def load_skip_log():
     return []
 
 def save_paper_log(log):
-    with open(PAPER_LOG, 'w') as f:
-        json.dump(log[-300:], f, indent=2)
+    _atomic_write_json(PAPER_LOG, log[-300:])
 
 def save_skip_log(log):
-    with open(SKIP_LOG, 'w') as f:
-        json.dump(log[-500:], f, indent=2)
+    _atomic_write_json(SKIP_LOG, log[-500:])
 
 def log_skipped_signal(coin, direction, strategy, rsi_ic, rsi_v, adx_v, period, skip_reason):
     """记录被跳过的信号（去重：同一币种+策略+原因1小时内不重复）"""
@@ -1083,6 +1092,7 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
             entry_price_real,
             entry_price_real * (1 - sl_pct),
             entry_price_real * (1 + tp_pct)))
+        record_trade_outcome(signal['coin'], 0, 'opened')
     else:
         position_closed = result.get('position_closed', False)
         sl_failed = not sl_info.get('success', True)
@@ -1192,6 +1202,7 @@ def close_paper_trade(coin, exit_price, reason='MANUAL'):
                 trade['close_reason'] = f'手动平仓 | {"盈利+" if pnl_val >= 0 else "亏损"}${abs(pnl_val):.2f} | {open_reason[:30]}'
 
             save_paper_log(log)
+            record_trade_outcome(coin, pnl_val, trade['close_reason'])
             
             # OKX实盘平仓（如果非模拟模式）
             if not DEMO_MODE and contracts > 0:
@@ -1700,7 +1711,7 @@ def run_full_report():
         # 熔断器检查：连续3次亏损后禁止开仓
         try:
             sys.path.insert(0, str(pathlib.Path(__file__).parent))
-            from kronos_heartbeat import check_circuit_breaker
+            from kronos_heartbeat import check_circuit_breaker, record_trade_outcome
             tripped, reason, _ = check_circuit_breaker()
             if tripped:
                 print('  ⛔ 熔断已触发，禁止开仓: %s' % reason)
@@ -2384,7 +2395,7 @@ def show_status():
     for x in log[-10:]:
         pnl = x.get('pnl', 0)
         mark = '✅' if pnl > 0 else '❌'
-        print(f"  {mark} {x.get('time','')[:19]} {x.get('coin','')} {x.get('side','')} ${pnl:.2f}")
+        print(f"  {mark} {x.get('open_time', x.get('time',''))[:19]} {x.get('coin','')} {x.get('direction', x.get('side',''))} ${pnl:.2f}")
 
 
 def show_log(n=20):
