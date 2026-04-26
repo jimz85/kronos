@@ -26,7 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from kronos.backtest import BacktestEngine, UnifiedBacktester
+from backtest import BacktestEngine, UnifiedBacktester
 
 
 def parse_args():

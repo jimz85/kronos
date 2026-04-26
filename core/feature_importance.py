@@ -337,6 +337,113 @@ def generate_weight_recommendation(
     return weight_dict
 
 
+def compute_ic(
+    factor: Union[pd.Series, np.ndarray],
+    returns: Union[pd.Series, np.ndarray],
+    method: str = 'spearman'
+) -> float:
+    """
+    Compute Information Coefficient (IC) between factor and returns.
+
+    Simple scalar IC: measures how well the factor predicts future returns.
+    Higher absolute IC values indicate stronger predictive power.
+
+    Args:
+        factor: Factor values (numpy array or pandas Series)
+        returns: Future returns (numpy array or pandas Series)
+        method: Correlation method - 'spearman' (rank) or 'pearson' (linear)
+
+    Returns:
+        float: IC value (scalar)
+
+    Example:
+        >>> ic = compute_ic(factor_values, return_values)
+        >>> print(f"IC: {ic:.4f}")
+    """
+    # Convert to numpy arrays if needed
+    if isinstance(factor, pd.Series):
+        factor = factor.values
+    if isinstance(returns, pd.Series):
+        returns = returns.values
+
+    # Remove NaN pairs
+    mask = ~(np.isnan(factor) | np.isnan(returns))
+    factor_clean = factor[mask]
+    returns_clean = returns[mask]
+
+    if len(factor_clean) < 3:
+        logger.warning(f"Insufficient data for IC: {len(factor_clean)} observations")
+        return np.nan
+
+    if method == 'spearman':
+        ic = float(np.corrcoef(
+            np.argsort(np.argsort(factor_clean)),
+            np.argsort(np.argsort(returns_clean))
+        )[0, 1])
+    elif method == 'pearson':
+        ic = float(np.corrcoef(factor_clean, returns_clean)[0, 1])
+    else:
+        raise ValueError(f"Unknown method: {method}. Use 'spearman' or 'pearson'")
+
+    return ic
+
+
+def generate_ic_weights(
+    ic_values: Dict[str, float],
+    method: str = 'ic_weighted',
+    temperature: float = 1.0
+) -> Dict[str, float]:
+    """
+    Generate factor weights based on Information Coefficient (IC) values.
+
+    Args:
+        ic_values: Dict mapping factor names to their IC values
+                   e.g., {'RSI': 0.05, 'ADX': 0.03}
+        method: Weighting method:
+            - 'ic_weighted': Weight proportional to absolute IC (default)
+            - 'positive_only': Only positive ICs contribute, negative get 0
+        temperature: Temperature for softmax normalization (higher = more uniform)
+
+    Returns:
+        dict: Factor weights (sums to 1.0)
+
+    Example:
+        >>> weights = generate_ic_weights({'RSI': 0.05, 'ADX': 0.03})
+        >>> print(weights)
+        {'RSI': 0.625, 'ADX': 0.375}
+    """
+    if not ic_values:
+        return {}
+
+    factor_names = list(ic_values.keys())
+    ic_arr = np.array(list(ic_values.values()))
+
+    # Compute base scores based on method
+    if method == 'ic_weighted':
+        scores = np.abs(ic_arr)
+    elif method == 'positive_only':
+        scores = np.maximum(ic_arr, 0.0)
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+    # Handle case where all scores are zero
+    if np.sum(scores) == 0:
+        logger.warning("All IC scores are zero, using uniform weights")
+        weights = np.ones(len(scores)) / len(scores)
+    else:
+        # Softmax with temperature
+        exp_scores = np.exp(scores / temperature)
+        weights = exp_scores / exp_scores.sum()
+
+    # Build result dictionary
+    weight_dict = {
+        factor: float(weight)
+        for factor, weight in zip(factor_names, weights)
+    }
+
+    return weight_dict
+
+
 def compute_ic_decay(
     factor: pd.Series,
     returns: pd.Series,

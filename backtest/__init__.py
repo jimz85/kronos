@@ -22,6 +22,9 @@ from .engine import (
     BacktestEngine,
     UnifiedBacktester,
     WLRTracker,
+    HyperOptimizedBacktest,
+    MultiDirectionBacktest,
+    RSIADXPatternBacktest,
 )
 
 # Re-export aliases for backward compatibility

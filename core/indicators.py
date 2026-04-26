@@ -15,7 +15,7 @@ def calc_rsi(prices, period=14):
         period: int, RSI period (default: 14)
     
     Returns:
-        pd.Series: RSI values
+        float: Latest RSI value
     """
     prices = np.asarray(prices).flatten()
     deltas = np.diff(prices, prepend=prices[0])
@@ -24,7 +24,8 @@ def calc_rsi(prices, period=14):
     avg_gain = pd.Series(gains).rolling(period).mean()
     avg_loss = pd.Series(losses).rolling(period).mean()
     rs = avg_gain / (avg_loss + 1e-10)
-    return 100 - (100 / (1 + rs))
+    rsi = 100 - (100 / (1 + rs))
+    return float(rsi.iloc[-1])
 
 
 def calc_ma(prices, period):
@@ -36,9 +37,9 @@ def calc_ma(prices, period):
         period: int, MA period
     
     Returns:
-        pd.Series: SMA values
+        float: Latest SMA value
     """
-    return pd.Series(np.asarray(prices).flatten()).rolling(period).mean()
+    return float(pd.Series(np.asarray(prices).flatten()).rolling(period).mean().iloc[-1])
 
 
 def calc_ema(prices, period=20):
@@ -50,7 +51,7 @@ def calc_ema(prices, period=20):
         period: int, EMA period (default: 20)
     
     Returns:
-        np.ndarray: EMA values
+        float: Latest EMA value
     """
     prices = np.asarray(prices)
     ema = np.zeros(len(prices))
@@ -58,7 +59,7 @@ def calc_ema(prices, period=20):
     for i in range(period, len(prices)):
         ema[i] = (ema[i - 1] * (period - 1) + prices[i]) / period
     ema[:period - 1] = ema[period - 1]
-    return ema
+    return float(ema[-1])
 
 
 def calc_atr(high, low, close, period=14):
@@ -72,7 +73,7 @@ def calc_atr(high, low, close, period=14):
         period: int, ATR period (default: 14)
     
     Returns:
-        pd.Series: ATR values
+        float: Latest ATR value
     """
     high = np.asarray(high).flatten()
     low = np.asarray(low).flatten()
@@ -80,7 +81,7 @@ def calc_atr(high, low, close, period=14):
     prev_close = np.roll(close, 1)
     prev_close[0] = close[0]
     tr = np.maximum(high - low, np.maximum(np.abs(high - prev_close), np.abs(low - prev_close)))
-    return pd.Series(tr).rolling(period).mean()
+    return float(pd.Series(tr).rolling(period).mean().iloc[-1])
 
 
 def calc_bollinger(prices, period=20, std_mult=2.0):
@@ -93,12 +94,15 @@ def calc_bollinger(prices, period=20, std_mult=2.0):
         std_mult: float, standard deviation multiplier (default: 2.0)
     
     Returns:
-        tuple: (middle_band, upper_band, lower_band)
+        tuple: (middle_band, upper_band, lower_band) as floats
     """
     prices = np.asarray(prices).flatten()
     ma = pd.Series(prices).rolling(period).mean()
     std = pd.Series(prices).rolling(period).std()
-    return ma, ma + std_mult * std, ma - std_mult * std
+    middle = float(ma.iloc[-1])
+    upper = float((ma + std_mult * std).iloc[-1])
+    lower = float((ma - std_mult * std).iloc[-1])
+    return middle, upper, lower
 
 
 def calc_macd(prices, fast=12, slow=26, signal=9):
@@ -112,11 +116,23 @@ def calc_macd(prices, fast=12, slow=26, signal=9):
         signal: int, signal line period (default: 9)
     
     Returns:
-        tuple: (macd_line, signal_line, histogram)
+        tuple: (macd_line, signal_line, histogram) as floats
     """
-    closes = np.asarray(prices)
-    ema_fast = calc_ema(closes, fast)
-    ema_slow = calc_ema(closes, slow)
+    prices = np.asarray(prices)
+    # Calculate fast EMA
+    ema_fast = np.zeros(len(prices))
+    ema_fast[fast - 1] = np.mean(prices[:fast])
+    for i in range(fast, len(prices)):
+        ema_fast[i] = (ema_fast[i - 1] * (fast - 1) + prices[i]) / fast
+    ema_fast[:fast - 1] = ema_fast[fast - 1]
+    
+    # Calculate slow EMA
+    ema_slow = np.zeros(len(prices))
+    ema_slow[slow - 1] = np.mean(prices[:slow])
+    for i in range(slow, len(prices)):
+        ema_slow[i] = (ema_slow[i - 1] * (slow - 1) + prices[i]) / slow
+    ema_slow[:slow - 1] = ema_slow[slow - 1]
+    
     macd = ema_fast - ema_slow
     # Signal line = EMA of MACD
     sig = np.zeros(len(macd))
@@ -124,7 +140,7 @@ def calc_macd(prices, fast=12, slow=26, signal=9):
     for i in range(signal, len(macd)):
         sig[i] = (sig[i - 1] * (signal - 1) + macd[i]) / signal
     hist = macd - sig
-    return macd, sig, hist
+    return float(macd[-1]), float(sig[-1]), float(hist[-1])
 
 
 def calc_adx(high, low, close, n=14):
@@ -138,7 +154,7 @@ def calc_adx(high, low, close, n=14):
         n: int, ADX period (default: 14)
     
     Returns:
-        pd.Series: ADX values
+        float: Latest ADX value
     """
     high = np.asarray(high)
     low = np.asarray(low)
@@ -159,7 +175,7 @@ def calc_adx(high, low, close, n=14):
     pdi = 100 * (pdm.rolling(n).mean() / atr)
     mdi = 100 * (mdm.rolling(n).mean() / atr)
     dx = 100 * np.abs(pdi - mdi) / (pdi + mdi + 1e-10)
-    return dx.rolling(n).mean()
+    return float(dx.rolling(n).mean().iloc[-1])
 
 
 def calc_cci(high, low, close, period=20):
@@ -173,7 +189,7 @@ def calc_cci(high, low, close, period=20):
         period: int, CCI period (default: 20)
     
     Returns:
-        pd.Series: CCI values
+        float: Latest CCI value
     """
     high = np.asarray(high).flatten()
     low = np.asarray(low).flatten()
@@ -183,4 +199,49 @@ def calc_cci(high, low, close, period=20):
     mean_deviation = pd.Series(typical_price).rolling(period).apply(
         lambda x: np.mean(np.abs(x - x.mean())), raw=True
     )
-    return (typical_price - sma) / (0.015 * mean_deviation)
+    return float(((typical_price - sma) / (0.015 * mean_deviation)).iloc[-1])
+
+
+def calculate_indicators(candles):
+    """
+    Calculate all technical indicators from OHLCV candles.
+    
+    Args:
+        candles: List of dicts with 'open', 'high', 'low', 'close', 'volume' keys
+                 or dict with lists: {'open': [...], 'high': [...], ...}
+    
+    Returns:
+        Dict of indicator values
+    """
+    import pandas as pd
+    
+    # Handle list of dicts format
+    if isinstance(candles, list):
+        df = pd.DataFrame(candles)
+    else:
+        df = pd.DataFrame(candles)
+    
+    close = df['close'].values
+    high = df['high'].values if 'high' in df.columns else close
+    low = df['low'].values if 'low' in df.columns else close
+    open_prices = df['open'].values if 'open' in df.columns else close
+    
+    # Calculate all indicators
+    return {
+        'rsi': calc_rsi(close, 14),
+        'rsi_4h': calc_rsi(close, 56),  # 4H RSI proxy
+        'ma_20': calc_ma(close, 20),
+        'ma_50': calc_ma(close, 50),
+        'ma_200': calc_ma(close, 200),
+        'ema_12': calc_ema(close, 12),
+        'ema_26': calc_ema(close, 26),
+        'atr': calc_atr(high, low, close, 14),
+        'bollinger_upper': calc_bollinger(close, 20)[0],
+        'bollinger_middle': calc_bollinger(close, 20)[1],
+        'bollinger_lower': calc_bollinger(close, 20)[2],
+        'macd': calc_macd(close)[0],
+        'macd_signal': calc_macd(close)[1],
+        'macd_histogram': calc_macd(close)[2],
+        'adx': calc_adx(high, low, close, 14),
+        'cci': calc_cci(high, low, close, 20),
+    }

@@ -177,7 +177,11 @@ def load_trades() -> list:
 
     # 实时从 OKX 补充当前持仓的浮动盈亏
     okx_live = {}
-    pos_resp = _req_okx('GET', '/api/v5/account/positions')
+    try:
+        pos_resp = _req_okx('GET', '/api/v5/account/positions')
+    except Exception as e:
+        logger.warning(f"[journal] OKX positions API failed: {e}")
+        pos_resp = {}
     if pos_resp.get('code') == '0':
         for p in pos_resp.get('data', []):
             inst_id = p.get('instId', '')
