@@ -203,14 +203,16 @@ class Gemma4SignalValidator:
         """
         signal_data = strategy_result.signal
         if signal_data:
+            sl = signal_data.metadata.get('stop_loss', 'N/A')
+            tp = signal_data.metadata.get('take_profit', 'N/A')
             signal_info = f"""
 Signal Type: {signal_data.signal_type.value if hasattr(signal_data.signal_type, 'value') else signal_data.signal_type}
-Direction: {signal_data.direction.value if hasattr(signal_data.direction, 'value') else signal_data.direction}
 Strength: {signal_data.strength.value if hasattr(signal_data.strength, 'value') else signal_data.strength}
-Confidence: {signal_data.confidence}
-Entry Price: {signal_data.entry_price}
-Stop Loss: {signal_data.stop_loss}
-Take Profit: {signal_data.take_profit}
+Confidence: {signal_data.confidence:.2f}
+Entry Price: {signal_data.price}
+Stop Loss: {sl}
+Take Profit: {tp}
+Reason: {signal_data.reason}
 """
         else:
             signal_info = "No signal (hold/neutral)"
