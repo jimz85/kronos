@@ -671,10 +671,11 @@ def _okx_market_close(instId, existing_side, size_contracts):
 def _place_sl_tp_algo(instId, side, sz, entry_price, sl_pct, tp_pct):
     """
     为已开仓位挂OCO Bracket订单（SL+TP合并为1个OCO订单）
-    
+
     P0 Bug修复（2026-04-26）：
     1. OKX每仓位只允许1个条件单，必须用ordType='oco'合并SL+TP
-    2. 原来用conditional分两次下单，OKX会接受但同一持仓有多个活跃条件单，
+    2. 幂等性：挂单前先查是否已有活跃OCO订单，有则跳过，防止重复挂单
+    3. 原来用conditional分两次下单，OKX会接受但同一持仓有多个活跃条件单，
        实际只生效第一个（SL或TP哪个先到谁成交），另一个变成死单
     """
     import hmac, hashlib, base64
@@ -687,6 +688,32 @@ def _place_sl_tp_algo(instId, side, sz, entry_price, sl_pct, tp_pct):
         sl_price = round(entry_price * (1 + sl_pct), 4)
         tp_price = round(entry_price * (1 - tp_pct), 4)
         close_side = 'buy'
+
+    # ── 幂等检查：先查是否已有活跃OCO订单，有则跳过 ──
+    ts_chk = _ts()
+    sign_chk = base64.b64encode(hmac.new(
+        OKX_SECRET.encode(),
+        f'{ts_chk}GET/api/v5/trade/orders-algo-pending?instId={instId}&ordType=oco&limit=10'.encode(),
+        hashlib.sha256
+    ).digest()).decode()
+    h_chk = {
+        'OK-ACCESS-KEY': OKX_API_KEY, 'OK-ACCESS-SIGN': sign_chk,
+        'OK-ACCESS-TIMESTAMP': ts_chk, 'OK-ACCESS-PASSPHRASE': OKX_PASSPHRASE,
+        'Content-Type': 'application/json', 'x-simulated-trading': '1',
+    }
+    try:
+        r_chk = requests.get(
+            'https://www.okx.com/api/v5/trade/orders-algo-pending?instId=%s&ordType=oco&limit=10' % instId,
+            headers=h_chk, timeout=10
+        )
+        existing = r_chk.json().get('data', [])
+        if existing:
+            algo_id = existing[0].get('algoId', '?')
+            print(f'    ⏭️ OCO已存在(id:{algo_id[:8]})，跳过挂单')
+            return {'sl': {'success': True, 'algoId': algo_id, 'price': sl_price, 'skipped': True},
+                    'tp': {'success': True, 'algoId': algo_id, 'price': tp_price, 'skipped': True}}
+    except Exception as e:
+        print(f'    ⚠️ 幂等检查异常({e})，继续挂单')
 
     results = {'sl': None, 'tp': None}
     # OCO Bracket：1个订单同时包含SL和TP，触发时互斥
