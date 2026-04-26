@@ -44,3 +44,4 @@ kronos_heartbeat.json
 *.csv
 *.parquet
 *.pkl
+.cooldown.json

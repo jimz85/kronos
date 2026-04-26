@@ -14,7 +14,8 @@ Kronos自动驾驶系统v3.0 - 完整版
 """
 
 import os, sys, json, time, requests as _req
-import pathlib
+import pathlib, logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,6 +24,32 @@ from dotenv import load_dotenv
 # OKX API时间戳：实盘要求Unix毫秒，模拟盘接受ISO。
 # 使用OKX服务器时间作为基准，消除本地时钟偏差。
 _okx_ts_offset = None
+
+# ── 日志配置（自动轮转：10MB × 5份）───────────────────────────
+_log_dir = Path(__file__).parent / 'logs'
+_log_dir.mkdir(exist_ok=True)
+_pilot_logger = logging.getLogger('kronos_pilot')
+_pilot_logger.setLevel(logging.DEBUG)
+_pilot_logger.handlers.clear()
+_rf = RotatingFileHandler(_log_dir / 'kronos_pilot.log', maxBytes=10*1024*1024,
+                          backupCount=5, encoding='utf-8')
+_rf.setLevel(logging.DEBUG)
+_rf.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+_pilot_logger.addHandler(_rf)
+_sh = logging.StreamHandler()
+_sh.setLevel(logging.INFO)
+_sh.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+_pilot_logger.addHandler(_sh)
+
+def log_info(msg):
+    _pilot_logger.info(msg)
+    print(msg)
+def log_warn(msg):
+    _pilot_logger.warning(msg)
+    print(f"⚠️  {msg}")
+def log_error(msg):
+    _pilot_logger.error(msg)
+    print(f"❌ {msg}")
 
 def _ts():
     """返回OKX服务器时间同步后的ISO8601时间戳（实盘必需格式）"""
@@ -1597,8 +1624,11 @@ def generate_signals():
 # ============================================================
 def push_feishu(message):
     try:
-        app_id = 'cli_a93c11b6bbf9dcc0'
+        app_id = os.environ.get('FEISHU_APP_ID', '')
         app_secret = os.environ.get('FEISHU_APP_SECRET', '')
+        if not app_id or not app_secret:
+            print('    ⚠️ 飞书APP_ID/APP_SECRET未配置，跳过推送')
+            return False
         tr = requests.post('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
                          json={'app_id': app_id, 'app_secret': app_secret}, timeout=10)
         td = tr.json()
@@ -2332,7 +2362,41 @@ def kronos_confirm():
     return '\n'.join(lines)
 
 
+def show_status():
+    """查看纸质交易胜率统计"""
+    log = load_paper_log()
+    if not log:
+        print('📊 无纸质交易记录')
+        return
+    total = len(log)
+    wins = [x for x in log if x.get('pnl', 0) > 0]
+    losses = [x for x in log if x.get('pnl', 0) <= 0]
+    win_rate = len(wins) / total * 100 if total else 0
+    total_pnl = sum(x.get('pnl', 0) for x in log)
+    avg_win = sum(x.get('pnl', 0) for x in wins) / len(wins) if wins else 0
+    avg_loss = sum(x.get('pnl', 0) for x in losses) / len(losses) if losses else 0
+    print(f'📊 纸质交易统计（共{total}笔）')
+    print(f'  胜率: {len(wins)}/{total} = {win_rate:.1f}%')
+    print(f'  总损益: ${total_pnl:.2f}')
+    if wins:   print(f'  平均盈利: ${avg_win:.2f} ({len(wins)}笔)')
+    if losses: print(f'  平均亏损: ${avg_loss:.2f} ({len(losses)}笔)')
+    print()
+    for x in log[-10:]:
+        pnl = x.get('pnl', 0)
+        mark = '✅' if pnl > 0 else '❌'
+        print(f"  {mark} {x.get('time','')[:19]} {x.get('coin','')} {x.get('side','')} ${pnl:.2f}")
 
+
+def show_log(n=20):
+    """查看最近日志"""
+    log_file = _log_dir / 'kronos_pilot.log'
+    if not log_file.exists():
+        print(f'📄 无日志文件: {log_file}')
+        return
+    lines = log_file.read_text(encoding='utf-8').strip().split('\n')
+    print(f'📄 最近{min(n, len(lines))}行日志:')
+    for line in lines[-n:]:
+        print(line)
 
 
 if __name__ == '__main__':

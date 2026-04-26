@@ -451,7 +451,7 @@ def compute_performance():
 def push_feishu(message, silent=False):
     try:
         import requests
-        app_id = 'cli_a93c11b6bbf9dcc0'
+        app_id = os.getenv('FEISHU_APP_ID', '')
         app_secret = os.environ.get('FEISHU_APP_SECRET', '')
         
         token_url = 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal'
