@@ -117,13 +117,23 @@ def get_okx_pos_mode():
             'Content-Type': 'application/json',
             'x-simulated-trading': '1',
         }
-        r = requests.get(f'https://www.okx.com{path}', headers=h, timeout=10)
-        result = r.json()
-        if result.get('code') == '0':
-            _okx_pos_mode = result['data'][0].get('posMode', 'net_mode')
-        else:
+        # P1 Fix: OKX API call now uses retry wrapper
+        ok, resp, err = _okx_request_with_retry(
+            'GET', f'https://www.okx.com{path}', headers=h, max_retries=2, timeout=10
+        )
+        if not ok:
+            _pilot_logger.warning(f'get_okx_pos_mode failed: {err}')
             _okx_pos_mode = 'net_mode'
-    except:
+            return _okx_pos_mode
+        try:
+            result = resp.json()
+            if result.get('code') == '0':
+                _okx_pos_mode = result['data'][0].get('posMode', 'net_mode')
+            else:
+                _okx_pos_mode = 'net_mode'
+        except Exception:
+            _okx_pos_mode = 'net_mode'
+    except Exception:
         _okx_pos_mode = 'net_mode'
     return _okx_pos_mode
 
@@ -868,11 +878,16 @@ def _place_sl_tp_algo(instId, side, sz, entry_price, sl_pct, tp_pct):
         'Content-Type': 'application/json', 'x-simulated-trading': '1',
     }
     try:
-        r_chk = requests.get(
+        ok_chk, r_chk, err_chk = _okx_request_with_retry(
+            'GET',
             'https://www.okx.com/api/v5/trade/orders-algo-pending?instId=%s&ordType=oco&limit=10' % instId,
-            headers=h_chk, timeout=10
+            headers=h_chk, max_retries=2, timeout=10
         )
-        existing = r_chk.json().get('data', [])
+        if not ok_chk:
+            _pilot_logger.warning(f'    ⚠️ 幂等检查失败({err_chk})，继续挂单')
+            existing = []
+        else:
+            existing = r_chk.json().get('data', [])
         if existing:
             algo_id = existing[0].get('algoId', '?')
             _pilot_logger.info(f'    ⏭️ OCO已存在(id:{algo_id[:8]})，跳过挂单')
@@ -958,9 +973,14 @@ def _get_position_entry_price(instId):
             'Content-Type': 'application/json',
             'x-simulated-trading': '1',
         }
-        r = requests.get(f'https://www.okx.com/api/v5/account/positions?instId={instId}',
-                        headers=headers, timeout=10)
-        data = r.json()
+        ok, resp, err = _okx_request_with_retry(
+            'GET',
+            f'https://www.okx.com/api/v5/account/positions?instId={instId}',
+            headers=headers, max_retries=2, timeout=10
+        )
+        if not ok:
+            return 0
+        data = resp.json()
         for pos in data.get('data', []):
             if pos.get('instId') == instId and float(pos.get('pos', 0)) > 0:
                 return float(pos.get('avgPx', 0))
@@ -988,9 +1008,15 @@ def _set_leverage(instId, lev):
             'Content-Type': 'application/json',
             'x-simulated-trading': '1',
         }
-        r = requests.post('https://www.okx.com/api/v5/account/set-leverage',
-                        headers=h, data=body, timeout=10)
-        result = r.json()
+        ok, resp, err = _okx_request_with_retry(
+            'POST',
+            'https://www.okx.com/api/v5/account/set-leverage',
+            headers=h, data=body, max_retries=2, timeout=10
+        )
+        if not ok:
+            _pilot_logger.error(f'  杠杆设置失败: {err}')
+            return
+        result = resp.json()
         if result.get('code') != '0':
             _pilot_logger.error(f'  杠杆设置失败: {result.get("msg","")}')
     except Exception as e:
@@ -1023,11 +1049,14 @@ def okx_get_positions():
             'x-simulated-trading': '1',
         }
 
-        resp = requests.get(
+        ok, resp, err = _okx_request_with_retry(
+            'GET',
             f'https://www.okx.com{path}',
-            headers=headers,
-            timeout=10
+            headers=headers, max_retries=2, timeout=10
         )
+        if not ok:
+            _pilot_logger.error(f'  获取OKX持仓失败: {err}')
+            return {}
         result = resp.json()
         if result.get('code') == '0':
             return {p['instId'].split('-')[0]: p for p in result.get('data', [])}
@@ -1082,12 +1111,14 @@ def okx_close_position(coin, side, size_contracts, pos_side='long'):
             'x-simulated-trading': '1',
         }
 
-        resp = requests.post(
+        ok, resp, err = _okx_request_with_retry(
+            'POST',
             f'https://www.okx.com{path}',
-            headers=headers,
-            data=body,
-            timeout=10
+            headers=headers, data=body, max_retries=2, timeout=10
         )
+        if not ok:
+            _pilot_logger.error(f'  OKX平仓失败: {err}')
+            return None
         result = resp.json()
         msg = result.get('msg', '')
         if result.get('code') == '0':
@@ -1193,6 +1224,47 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
                 return None
     except:
         pass
+
+    # ✅ P1: 预交易模拟验证（防止重复开仓、逆势交易、R:R不合理）
+    # 如果任何检查失败，返回None（信号作废，不下单）
+    try:
+        # 1. 检查是否已有该币种未平仓仓位（防止重复开仓）
+        open_for_coin = [t for t in log if t.get('coin') == signal['coin'] and t.get('status') == 'OPEN']
+        if open_for_coin:
+            _pilot_logger.warning(
+                f'  ⛔ {signal["coin"]} 预交易模拟: 已有未平仓仓位'
+                f'({open_for_coin[0]["direction"]} @ ${open_for_coin[0].get("entry_price", 0):.4f})，跳过'
+            )
+            return None
+
+        # 2. R:R 风险收益比检查（止盈至少是止损的1.5倍）
+        if sl_pct > 0 and tp_pct > 0:
+            rr_ratio = tp_pct / sl_pct
+            if rr_ratio < 1.5:
+                _pilot_logger.warning(
+                    f'  ⛔ {signal["coin"]} 预交易模拟: R:R={rr_ratio:.1f}:1 < 1.5:1 (SL={sl_pct:.2f}% TP={tp_pct:.2f}%)，跳过'
+                )
+                return None
+
+        # 3. 价格偏移检查（信号价格 vs 当前价格，偏移超过3%要警告）
+        if price > 0:
+            sig_price = signal.get('price', price)
+            if sig_price > 0:
+                price_drift = abs(price - sig_price) / sig_price
+                if price_drift > 0.03:
+                    _pilot_logger.warning(
+                        f'  ⛔ {signal["coin"]} 预交易模拟: 价格偏移{price_drift*100:.1f}%（信号${sig_price:.4f} vs 当前${price:.4f})，跳过'
+                    )
+                    return None
+
+        # 4. 最小仓位检查（防止张数太少无效交易）
+        if contracts < 1:
+            _pilot_logger.warning(f'  ⛔ {signal["coin"]} 预交易模拟: 张数{contracts}<1，跳过')
+            return None
+
+        _pilot_logger.info(f'  ✅ {signal["coin"]} 预交易模拟通过（R:R={rr_ratio:.1f}:1 张数={contracts}）')
+    except Exception:
+        pass  # 任何检查异常都放行，不阻断交易
 
     # OKX实盘下单（同时模拟）
     side = 'buy' if signal['direction'] == 'LONG' else 'sell'
@@ -1449,7 +1521,9 @@ def get_okx_prices():
     prices = {}
     def fetch_one(inst_id, coin):
         try:
-            r = requests.get(BASE + inst_id, timeout=5)
+            ok, r, err = _okx_request_with_retry('GET', BASE + inst_id, max_retries=2, timeout=5)
+            if not ok:
+                return coin, None
             d = r.json()
             if d.get('code') == '0':
                 return coin, float(d['data'][0]['last'])
