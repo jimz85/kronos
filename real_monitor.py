@@ -10,6 +10,11 @@ from pathlib import Path
 from datetime import datetime
 
 logger = logging.getLogger('real_monitor')
+if not logger.handlers:
+    h = logging.StreamHandler(sys.stdout)
+    h.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(h)
+    logger.setLevel(logging.INFO)
 
 # 导入kronos_pilot的推送函数和kronos_utils的PnL计算
 sys.path.insert(0, str(Path(__file__).parent))
@@ -1437,6 +1442,10 @@ def monitor_and_fix():
     if err:
         logger.error('  ❌ ' + err)
         return ['❌ 无法连接OKX: ' + err]
+
+    if err2:
+        logger.error('  ❌ ' + err2)
+        return ['❌ 无法连接OKX(含已平仓): ' + err2]
 
     if not real_pos:
         logger.info('  ✅ OKX无持仓')
