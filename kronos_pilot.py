@@ -623,7 +623,9 @@ def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20,
             print(f'  ⚠️ 无法获取{coin}成交价，跳过SL/TP')
             print(f'  OKX实盘下单成功: {direction_str} {coin} {size_contracts}张（无保护）')
             # 无保护持仓 → 必须立即平仓
-            _okx_market_close(instId, side, size_contracts)
+            close_ok = _okx_market_close(instId, side, size_contracts)
+            if not close_ok:
+                print(f'  ❌ 平仓失败！请立即手动处理！')
             return {'success': False, 'code': '0', 'entry_price': 0,
                     'sl': {'success': False, 'error': '无法获取成交价'},
                     'tp': {'success': False, 'error': '无法获取成交价'}}
@@ -642,6 +644,7 @@ def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20,
             err = sl_tp_results['sl']['error'] if sl_failed else sl_tp_results['tp']['error']
             print(f'  🔴 【紧急】{failed}挂单失败({err}) → 立即市价平仓（无保护持仓不可接受）')
             close_result = _okx_market_close(instId, side, size_contracts)
+            record_trade_outcome(coin, 0, 'sl_tp_failed_force_close')
             if close_result:
                 print(f'  ✅ 已平仓（无保护持仓）')
             else:
@@ -683,6 +686,7 @@ def _okx_market_close(instId, existing_side, size_contracts):
             'ordType': 'market',
             'sz': str(int(size_contracts)),
             'posSide': close_pos_side,
+            'reduceOnly': True,
         })
         sign = base64.b64encode(hmac.new(
             OKX_SECRET.encode(),
@@ -700,7 +704,8 @@ def _okx_market_close(instId, existing_side, size_contracts):
         r = requests.post('https://www.okx.com/api/v5/trade/order', headers=headers, data=body, timeout=10)
         result = r.json()
         return result.get('code') == '0'
-    except:
+    except Exception as e:
+        print(f'  ⚠️ _okx_market_close异常: {e}')
         return False
 
 
@@ -1626,6 +1631,8 @@ def generate_signals():
             'open_reason': f'{open_reason} | IC={rsi_ic:.3f} | {strategy} | {period_tag}',
             'btc_price': prices.get('BTC'),
             'signal_text': f'{arrow} {period_tag} {coin}: {direction} | {strategy} | RSI_IC={rsi_ic:.3f} | 置信{conf_bar}{confidence}% | 仓位{position_size*100:.0f}% | 衰减{decay_icon}',
+            # 信号过期机制（5分钟超时）
+            'signal_time': time.time(),
         })
 
     return signals, prices
@@ -1718,6 +1725,12 @@ def run_full_report():
                 break
         except Exception:
             pass  # 熔断器模块异常时不阻止交易
+
+        # 信号过期检查（5分钟超时）
+        signal_age = time.time() - sig.get('signal_time', 0)
+        if signal_age >= 300:
+            print('  ⏰ 跳过 %s: 信号已过期(%.0f秒>5分钟)' % (sig['coin'], signal_age))
+            continue
 
         trade = open_paper_trade(
             sig,
