@@ -670,12 +670,12 @@ def _okx_market_close(instId, existing_side, size_contracts):
 
 def _place_sl_tp_algo(instId, side, sz, entry_price, sl_pct, tp_pct):
     """
-    为已开仓位挂独立的SL/TP条件单
-    止损止盈价格从ENTRY PRICE计算，固定不变
-    返回: {
-        'sl': {'success': bool, 'algoId': str or None, 'price': float or None, 'error': str or None},
-        'tp': {'success': bool, 'algoId': str or None, 'price': float or None, 'error': str or None}
-    }
+    为已开仓位挂OCO Bracket订单（SL+TP合并为1个OCO订单）
+    
+    P0 Bug修复（2026-04-26）：
+    1. OKX每仓位只允许1个条件单，必须用ordType='oco'合并SL+TP
+    2. 原来用conditional分两次下单，OKX会接受但同一持仓有多个活跃条件单，
+       实际只生效第一个（SL或TP哪个先到谁成交），另一个变成死单
     """
     import hmac, hashlib, base64
 
@@ -689,50 +689,51 @@ def _place_sl_tp_algo(instId, side, sz, entry_price, sl_pct, tp_pct):
         close_side = 'buy'
 
     results = {'sl': None, 'tp': None}
-    for name, trigger_key, order_key, trigger_price in [
-        ('止损', 'slTriggerPx', 'slOrdPx', sl_price),
-        ('止盈', 'tpTriggerPx', 'tpOrdPx', tp_price),
-    ]:
-        body = {
-            'instId': instId,
-            'tdMode': 'isolated',
-            'side': close_side,
-            'ordType': 'conditional',
-            'sz': str(int(sz)),
-            'posSide': 'long' if side == 'buy' else 'short',  # long_short_mode需要
-            trigger_key: str(trigger_price),
-            order_key: '-1',  # 市价触发
-        }
-        ts = _ts()
-        sign = base64.b64encode(hmac.new(
-            OKX_SECRET.encode(),
-            f'{ts}POST/api/v5/trade/order-algo{json.dumps(body)}'.encode(),
-            hashlib.sha256
-        ).digest()).decode()
-        headers = {
-            'OK-ACCESS-KEY': OKX_API_KEY,
-            'OK-ACCESS-SIGN': sign,
-            'OK-ACCESS-TIMESTAMP': ts,
-            'OK-ACCESS-PASSPHRASE': OKX_PASSPHRASE,
-            'Content-Type': 'application/json',
-            'x-simulated-trading': '1',  # 模拟盘Key路由到simulation环境
-        }
-        key = 'sl' if name == '止损' else 'tp'
-        try:
-            r = requests.post('https://www.okx.com/api/v5/trade/order-algo',
-                           headers=headers, data=json.dumps(body), timeout=10)
-            result = r.json()
-            if result.get('code') == '0':
-                algo_id = result['data'][0]['algoId']
-                print(f'    ✅ {name}已挂: ${trigger_price} [id:{algo_id[:8]}]')
-                results[key] = {'success': True, 'algoId': algo_id, 'price': trigger_price, 'error': None}
-            else:
-                err_msg = result.get('msg', '')
-                print(f'    ❌ {name}失败: {err_msg}')
-                results[key] = {'success': False, 'algoId': None, 'price': trigger_price, 'error': err_msg}
-        except Exception as e:
-            print(f'    ❌ {name}异常: {e}')
-            results[key] = {'success': False, 'algoId': None, 'price': trigger_price, 'error': str(e)}
+    # OCO Bracket：1个订单同时包含SL和TP，触发时互斥
+    body = {
+        'instId': instId,
+        'tdMode': 'isolated',
+        'side': close_side,
+        'ordType': 'oco',       # OCO = One-Cancels-Other，SL+TP互斥 ✅
+        'sz': str(int(sz)),
+        'posSide': 'long' if side == 'buy' else 'short',
+        'slTriggerPx': str(sl_price),
+        'slOrdPx': '-1',        # 市价触发
+        'tpTriggerPx': str(tp_price),
+        'tpOrdPx': '-1',       # 市价触发
+    }
+    ts = _ts()
+    sign = base64.b64encode(hmac.new(
+        OKX_SECRET.encode(),
+        f'{ts}POST/api/v5/trade/order-algo{json.dumps(body)}'.encode(),
+        hashlib.sha256
+    ).digest()).decode()
+    headers = {
+        'OK-ACCESS-KEY': OKX_API_KEY,
+        'OK-ACCESS-SIGN': sign,
+        'OK-ACCESS-TIMESTAMP': ts,
+        'OK-ACCESS-PASSPHRASE': OKX_PASSPHRASE,
+        'Content-Type': 'application/json',
+        'x-simulated-trading': '1',
+    }
+    try:
+        r = requests.post('https://www.okx.com/api/v5/trade/order-algo',
+                        headers=headers, data=json.dumps(body), timeout=10)
+        result = r.json()
+        if result.get('code') == '0':
+            algo_id = result['data'][0]['algoId']
+            print(f'    ✅ OCO已挂: SL@${sl_price} + TP@${tp_price} [id:{algo_id[:8]}]')
+            results['sl'] = {'success': True, 'algoId': algo_id, 'price': sl_price, 'error': None}
+            results['tp'] = {'success': True, 'algoId': algo_id, 'price': tp_price, 'error': None}
+        else:
+            err_msg = result.get('msg', '')
+            print(f'    ❌ OCO失败: {err_msg}')
+            results['sl'] = {'success': False, 'algoId': None, 'price': sl_price, 'error': err_msg}
+            results['tp'] = {'success': False, 'algoId': None, 'price': tp_price, 'error': err_msg}
+    except Exception as e:
+        print(f'    ❌ OCO异常: {e}')
+        results['sl'] = {'success': False, 'algoId': None, 'price': sl_price, 'error': str(e)}
+        results['tp'] = {'success': False, 'algoId': None, 'price': tp_price, 'error': str(e)}
 
     return results
 
