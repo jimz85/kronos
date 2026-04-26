@@ -53,7 +53,11 @@ def _req(method, path, body=''):
         r = requests.get(url, headers=h, timeout=10)
     else:
         r = requests.post(url, headers=h, data=body, timeout=10)
-    result = r.json()
+    try:
+        result = r.json()
+    except Exception:
+        logger.error('    API响应解析失败: status=%s body=%s' % (r.status_code, r.text[:200]))
+        return {'code': 'PARSE_ERROR', 'msg': 'Non-JSON response'}
     if result.get('code') not in ('0', None):
         logger.error('    API错误: %s %s' % (result.get('code'), result.get('msg', '')))
     return result

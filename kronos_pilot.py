@@ -642,7 +642,7 @@ def _okx_request_with_retry(
                 return False, None, f'Connection error after {max_retries} retries'
             continue
 
-        except Exception:
+        except Exception as e:
             # 不捕获KeyboardInterrupt/SystemExit，只处理编程错误
             # 不暴露异常详情，避免泄露文件路径/变量名
             return False, None, f'Unexpected error: <{type(e).__name__}>'
@@ -875,7 +875,7 @@ def _okx_market_close(instId: str, existing_side: str, size_contracts: int) -> b
         result = r.json()
         return result.get('code') == '0'
     except Exception as e:
-        _pilot_logger.warning(f'  ⚠️ _okx_market_close异常: {e}')
+        _pilot_logger.warning(f'  ⚠️ _okx_market_close异常: {type(e).__name__}')
         return False
 
 
@@ -1000,9 +1000,9 @@ def _place_sl_tp_algo(
             results['sl'] = {'success': False, 'algoId': None, 'price': sl_price, 'error': err_msg}
             results['tp'] = {'success': False, 'algoId': None, 'price': tp_price, 'error': err_msg}
     except Exception as e:
-        _pilot_logger.error(f'    ❌ OCO异常: {e}')
-        results['sl'] = {'success': False, 'algoId': None, 'price': sl_price, 'error': str(e)}
-        results['tp'] = {'success': False, 'algoId': None, 'price': tp_price, 'error': str(e)}
+        _pilot_logger.error(f'    ❌ OCO异常: {type(e).__name__}')
+        results['sl'] = {'success': False, 'algoId': None, 'price': sl_price, 'error': 'OCO order exception'}
+        results['tp'] = {'success': False, 'algoId': None, 'price': tp_price, 'error': 'OCO order exception'}
 
     return results
 
@@ -1081,50 +1081,28 @@ def _set_leverage(instId, lev):
     except Exception as e:
         _pilot_logger.error(f'  杠杆设置异常: {e}')
 
-def okx_get_positions() -> list[dict]:
-    """获取当前持仓（OKX实盘）
+def okx_get_positions() -> dict:
+    """获取当前持仓（OKX），返回 {symbol: position_dict}
 
-    Returns:
-        list[dict]: 持仓列表，每项包含OKXpositions接口返回的字段
+    即使在DEMO_MODE也要查询持仓（防止双向锁仓）。
+    使用real_monitor._req确保正确的时间戳格式。
     """
-    if DEMO_MODE:
-        return {}
-    
-    import hmac, hashlib, base64
-    
     try:
-        ts = _ts()
-        method = 'GET'
-        path = '/api/v5/account/positions?instType=SWAP'
-        
-        sign = base64.b64encode(hmac.new(
-            OKX_SECRET.encode(),
-            f'{ts}{method}{path}'.encode(),
-            hashlib.sha256
-        ).digest()).decode()
-        
-        headers = {
-            'OK-ACCESS-KEY': OKX_API_KEY,
-            'OK-ACCESS-SIGN': sign,
-            'OK-ACCESS-TIMESTAMP': ts,
-            'OK-ACCESS-PASSPHRASE': OKX_PASSPHRASE,
-            'Content-Type': 'application/json',
-            'x-simulated-trading': '1',
-        }
-
-        ok, resp, err = _okx_request_with_retry(
-            'GET',
-            f'https://www.okx.com{path}',
-            headers=headers, max_retries=2, timeout=10
-        )
-        if not ok:
-            _pilot_logger.error(f'  获取OKX持仓失败: {err}')
-            return {}
-        result = resp.json()
-        if result.get('code') == '0':
-            return {p['instId'].split('-')[0]: p for p in result.get('data', [])}
+        # ✅ P0 Fix: 即使DEMO_MODE也要查询OKX持仓（防止双向锁仓）
+        from real_monitor import _req as _okx_req
+        result = _okx_req('GET', '/api/v5/account/positions')
+        if isinstance(result, dict) and result.get('code') == '0':
+            positions = result.get('data', [])
+            # ✅ P0 Fix: OKX模拟盘sz字段为0，用notionalUsd判断是否有实际持仓
+            return {
+                p['instId'].split('-')[0]: p
+                for p in positions
+                if float(p.get('notionalUsd', 0) or 0) > 100  # >$100过滤噪声
+            }
+        return {}
     except Exception as e:
-        _pilot_logger.error(f'  获取OKX持仓失败: {e}')
+        import logging
+        logging.getLogger('kronos_pilot').warning(f'获取OKX持仓失败: {e}')
     return {}
 
 def okx_close_position(coin, side, size_contracts, pos_side='long'):
@@ -1289,7 +1267,7 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
             )
             if is_counter_trend and is_rsi_extreme and is_trending:
                 trend_word = '下跌' if rsi_now < 35 else '上涨'
-                _pilot_logger.warning(f'  ⛔ {sig["coin"]} 逆势信号过滤（ADX={adx_now:.0f}>22强趋势中RSI={rsi_now:.0f}{trend_word}，{"逆" if rsi_now < 35 else "逆"}做多危险），跳过')
+                _pilot_logger.warning(f'  ⛔ {signal["coin"]} 逆势信号过滤（ADX={adx_now:.0f}>22强趋势中RSI={rsi_now:.0f}{trend_word}，{"逆" if rsi_now < 35 else "逆"}做多危险），跳过')
                 return None
     except:
         pass
@@ -1326,7 +1304,30 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
                     )
                     return None
 
-        # 4. 最小仓位检查（防止张数太少无效交易）
+        # 4. OKX真实持仓方向冲突检查（✅ P0 Fix: 防止双向锁仓）
+        # 获取OKX真实持仓，如果已有同币种反向持仓则跳过
+        try:
+            real_positions = okx_get_positions()
+            if signal['coin'] in real_positions:
+                existing_pos = real_positions[signal['coin']]
+                existing_side = existing_pos.get('posSide', '')
+                proposed_side = signal.get('direction', 'LONG')
+                # LONG做多时，已有做空持仓 → 冲突
+                # SHORT做空时，已有做多持仓 → 冲突
+                conflict = (
+                    (proposed_side == 'LONG' and existing_side == 'short') or
+                    (proposed_side == 'SHORT' and existing_side == 'long')
+                )
+                if conflict:
+                    _pilot_logger.warning(
+                        f'  ⛔ {signal["coin"]} 预交易模拟: OKX已有{existing_side}持仓（'
+                        f'{existing_pos.get("notionalUsd", 0):.0f}），与策略方向{proposed_side}冲突，跳过'
+                    )
+                    return None
+        except Exception:
+            pass  # OKX持仓检查失败不阻断交易
+
+        # 5. 最小仓位检查（防止张数太少无效交易）
         if contracts < 1:
             _pilot_logger.warning(f'  ⛔ {signal["coin"]} 预交易模拟: 张数{contracts}<1，跳过')
             return None
@@ -2009,12 +2010,18 @@ def run_full_report():
         try:
             sys.path.insert(0, str(pathlib.Path(__file__).parent))
             from kronos_heartbeat import check_circuit_breaker, record_trade_outcome
+            from real_monitor import check_treasury_limits
             tripped, reason, _ = check_circuit_breaker()
             if tripped:
                 _pilot_logger.warning('  ⛔ 熔断已触发，禁止开仓: %s' % reason)
                 break
+            # ✅ P0: 财务政策检查（余额不足/reserve不足时禁止开仓）
+            allowed, treasury_reason, treasury_warnings = check_treasury_limits(equity)
+            if not allowed:
+                _pilot_logger.warning('  🚫 财务限制，禁止开仓: %s' % treasury_reason.replace('\n', ' '))
+                break
         except Exception:
-            pass  # 熔断器模块异常时不阻止交易
+            pass  # 熔断器/财务模块异常时不阻止交易
 
         # 信号过期检查（5分钟超时）
         signal_age = time.time() - sig.get('signal_time', 0)
