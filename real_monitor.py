@@ -844,10 +844,17 @@ def get_real_positions(include_closed=False):
                 continue
 
             side = pos.get('side', 'buy').lower()
+            # BNB BUG FIX (2026-04-26): 用API的actual margin而非公式估算
+            # 公式 pos_value/lever 在BNB上差100倍(入场价vs标记价单位问题)
+            # API实际: BNB margin=$678 vs 公式=$68K; SOL margin=$3394 vs 公式=$3390(正确)
+            actual_margin = float(pos.get('margin', 0))
             positions[coin] = {
                 'side': side,  # buy=long, sell=short
                 'size': size,   # size=0 表示已平仓
-                'entry': float(pos.get('avgPx', 0)),
+                'entry': float(pos.get('avgPx', 0)),  # 入场价
+                'markPx': float(pos.get('markPx', 0)),  # 标记价（当前）
+                'notionalUsd': float(pos.get('notionalUsd', 0)),  # 仓位USD法币价值
+                'actual_margin': actual_margin,  # OKX实际保证金（优先使用）
                 'unrealized_pnl': float(pos.get('upl', 0)),
                 'leverage': int(pos.get('lever', 3)),
                 'mgnMode': pos.get('mgnMode', 'isolated'),  # 持仓保证金模式
@@ -1243,12 +1250,13 @@ def check_account_health(real_pos, balance_info=None):
     for coin, pos in real_pos.items():
         if pos['size'] <= 0:
             continue
-        # 估算保证金 = 仓位价值 / 杠杆
-        pos_value = pos['size'] * pos['entry']
-        margin_used = pos_value / pos['leverage']
+        # BNB BUG FIX: 优先用API实际保证金而非公式估算
+        # 公式 pos_value/lever 在BNB上差100倍，但SOL基本正确
+        # 正确: actual_margin / total_eq × 100
+        margin_used = pos.get('actual_margin', pos.get('notionalUsd', 0) / pos.get('leverage', 3))
         pct_of_eq = (margin_used / total_eq * 100) if total_eq > 0 else 0
-        
-        # 标记
+
+        # 标记（正确用actual_margin后，BNB: $678/$67831 = 1%, 不超标）
         flag = ''
         if pct_of_eq > CONCENTRATION_WARN:
             flag = ' ⚠️集中'
@@ -1261,8 +1269,11 @@ def check_account_health(real_pos, balance_info=None):
                 flag += ' 🔴深亏%.0f%%' % loss_pct
                 warnings.append('🔴 %s浮亏$%+.2f(占总权益%.0f%%)' % (coin, pos['unrealized_pnl'], loss_pct))
         
-        logger.info('  - %s: %s %s张 保证金$%.2f(%.0f%%) 浮盈$%+.2f%s' % (
+        # 显示: 标记价(更有意义) + 实际保证金 + 正确集中度%
+        display_price = pos.get('markPx') or pos.get('entry', 0)
+        logger.info('  - %s: %s %s张 @ $%.2f 保证金$%.2f(%.0f%%) 浮盈$%+.2f%s' % (
             coin, pos['side'], pos['size'],
+            display_price,
             margin_used, pct_of_eq,
             pos['unrealized_pnl'], flag))
     
