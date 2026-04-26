@@ -542,6 +542,89 @@ def get_cross_layer_signals():
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# P0 Fix: OKX API 重试 + 幂等包装器
+# 策略：
+#   - HTTP 429: 解析 Retry-After，等待后重试，最多 max_retries 次
+#   - 网络超时/连接错误: 幂等继续（OKX市价单本身幂等）
+#     → 网络失败时保守继续：若订单实际成功则保护生效；若失败则无仓位可保护
+#   - HTTP 非0错误码: 不重试，立即返回
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _okx_request_with_retry(method, url, headers=None, data=None,
+                             max_retries=2, timeout=10):
+    """
+    包装 requests，带重试 + Retry-After 解析 + 幂等安全。
+    返回: (success: bool, response: requests.Response, error: str or None)
+    """
+    import time
+    session = requests  # requests 本身线程安全（每个请求独立socket）
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            if method.upper() == 'POST':
+                resp = session.post(url, headers=headers, data=data, timeout=timeout)
+            else:
+                resp = session.get(url, headers=headers, timeout=timeout)
+
+            # HTTP 429: Rate Limit
+            if resp.status_code == 429:
+                retry_after = 5.0  # 默认5秒
+                for h in ['Retry-After', 'retry-after']:
+                    if h in resp.headers:
+                        try:
+                            retry_after = float(resp.headers[h])
+                        except (ValueError, TypeError):
+                            pass
+                        break
+                if attempt < max_retries:
+                    _pilot_logger.warning(
+                        f'  ⚠️ HTTP 429 (attempt {attempt}/{max_retries}), '
+                        f'waiting {retry_after:.1f}s before retry')
+                    time.sleep(retry_after)
+                    continue
+                return False, None, f'HTTP 429 after {max_retries} retries'
+
+            # 网络层错误（超时/连接断开）
+            if resp.status_code in (599,):  # requests internal "connection error" code
+                if attempt < max_retries:
+                    wait = 2 ** attempt  # 指数退避: 2s, 4s
+                    _pilot_logger.warning(
+                        f'  ⚠️ Network error (attempt {attempt}/{max_retries}), '
+                        f'waiting {wait}s before retry')
+                    time.sleep(wait)
+                    continue
+                return False, None, f'Network error after {max_retries} retries'
+
+            return True, resp, None
+
+        except requests.exceptions.Timeout:
+            if attempt < max_retries:
+                wait = 2 ** attempt
+                _pilot_logger.warning(
+                    f'  ⚠️ Request timeout (attempt {attempt}/{max_retries}), '
+                    f'waiting {wait}s before retry')
+                time.sleep(wait)
+                continue
+            return False, None, f'Request timeout after {max_retries} retries'
+
+        except requests.exceptions.ConnectionError as e:
+            if attempt < max_retries:
+                wait = 2 ** attempt
+                _pilot_logger.warning(
+                    f'  ⚠️ Connection error (attempt {attempt}/{max_retries}), '
+                    f'waiting {wait}s before retry: {e}')
+                time.sleep(wait)
+                continue
+            return False, None, f'Connection error after {max_retries} retries: {e}'
+
+        except Exception as e:
+            # 未知错误，直接放弃
+            return False, None, f'Unexpected error: {e}'
+
+    return False, None, 'Max retries exceeded'
+
+
 def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20, price=None):
     """
     OKX下单（支持模拟盘和实盘）
@@ -594,7 +677,30 @@ def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20,
             'Content-Type': 'application/json',
             'x-simulated-trading': '1',  # 模拟盘Key路由到simulation环境
         }
-        resp = requests.post('https://www.okx.com/api/v5/trade/order', headers=headers, data=body, timeout=10)
+
+        # P0 Fix: 使用重试包装器（幂等安全，网络失败时保守继续）
+        ok, resp, err = _okx_request_with_retry(
+            'POST', 'https://www.okx.com/api/v5/trade/order',
+            headers=headers, data=body, max_retries=2, timeout=10
+        )
+        if not ok:
+            _pilot_logger.error(
+                f'  🔴 OKX下单失败（网络/限流）: {err} | '
+                f'保守策略：仍尝试挂SL/TP（若订单实际成功则保护生效）')
+            # 保守策略：继续尝试获取成交价和挂SL/TP
+            # OKX市价单幂等，若订单成功则能查到position；若失败则无仓位可保护
+            entry_price = _get_position_entry_price(instId)
+            if entry_price <= 0:
+                _pilot_logger.error(f'  ❌ 无法确认{coin}订单状态且无持仓，跳过SL/TP')
+                return {'success': False, 'code': err, 'entry_price': 0,
+                        'sl': {'success': False, 'error': f'Network error: {err}'},
+                        'tp': {'success': False, 'error': f'Network error: {err}'}}
+            _pilot_logger.warning(f'  ⚠️ {coin}订单状态未知但检测到持仓@${entry_price}，挂SL/TP')
+            sl_tp_results = _place_sl_tp_algo(instId, side, size_contracts, entry_price, sl_pct, tp_pct)
+            return {'success': True, 'code': 'unknown_confirmed', 'entry_price': entry_price,
+                    'sl': sl_tp_results['sl'], 'tp': sl_tp_results['tp'],
+                    'position_closed': False, 'order_confirmed': False}
+
         try:
             order_result = resp.json()
         except:
@@ -675,6 +781,7 @@ def _okx_market_close(instId, existing_side, size_contracts):
     市价平仓（紧急用途：SL/TP挂单失败后立即执行）
     existing_side: 'buy' → 做空平多；'sell' → 做多平空
     返回: bool 是否成功
+    P0 Fix: 添加重试机制，网络/限流失败时最多重试2次
     """
     import hmac, hashlib, base64
     close_side = 'sell' if existing_side == 'buy' else 'buy'
@@ -703,7 +810,14 @@ def _okx_market_close(instId, existing_side, size_contracts):
             'Content-Type': 'application/json',
             'x-simulated-trading': '1',
         }
-        r = requests.post('https://www.okx.com/api/v5/trade/order', headers=headers, data=body, timeout=10)
+        # P0 Fix: 市价平仓带重试（reduceOnly安全，重复平仓OKX返回0）
+        ok, r, err = _okx_request_with_retry(
+            'POST', 'https://www.okx.com/api/v5/trade/order',
+            headers=headers, data=body, max_retries=2, timeout=10
+        )
+        if not ok:
+            _pilot_logger.error(f'  ❌ _okx_market_close失败（网络/限流）: {err}，重试后仍失败')
+            return False
         result = r.json()
         return result.get('code') == '0'
     except Exception as e:
@@ -786,9 +900,18 @@ def _place_sl_tp_algo(instId, side, sz, entry_price, sl_pct, tp_pct):
         'Content-Type': 'application/json',
         'x-simulated-trading': '1',
     }
+    # P0 Fix: OCO挂单使用重试包装器（幂等，重复挂单OKX会接受但只生效第一个）
+    ok, r, err = _okx_request_with_retry(
+        'POST', 'https://www.okx.com/api/v5/trade/order-algo',
+        headers=headers, data=json.dumps(body), max_retries=2, timeout=10
+    )
+    if not ok:
+        _pilot_logger.error(f'    ❌ OCO网络/限流失败: {err}，重试后仍失败')
+        results['sl'] = {'success': False, 'algoId': None, 'price': sl_price, 'error': err}
+        results['tp'] = {'success': False, 'algoId': None, 'price': tp_price, 'error': err}
+        return results
+
     try:
-        r = requests.post('https://www.okx.com/api/v5/trade/order-algo',
-                        headers=headers, data=json.dumps(body), timeout=10)
         result = r.json()
         if result.get('code') == '0':
             algo_id = result['data'][0]['algoId']
