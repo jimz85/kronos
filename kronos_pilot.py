@@ -104,9 +104,30 @@ PERF_FILE = os.path.join(CACHE_DIR, 'performance.json')
 COINS = ['BTC', 'ETH', 'ADA', 'DOGE', 'AVAX', 'DOT', 'SOL']
 COIN_INST = {
     'BTC': 'BTC-USDT', 'ETH': 'ETH-USDT', 'ADA': 'ADA-USDT',
-    'DOGE': 'DOGE-USDT', 'AVAX': 'AVAX-USDT', 'DOT': 'DOT-USDT', 'SOL': 'SOL-USDT'
+    'DOGE': 'DOGE-USDT', 'AVAX': 'AVAX-USDT', 'DOT': 'DOT-USDT', 'SOL': 'SOL-USDT',
+    'XRP': 'XRP-USDT', 'BNB': 'BNB-USDT',  # P1 Fix: 补充XRP/BNB合约代码
 }
 COIN_TICKER = {c: c + '-USD' for c in COINS}
+
+# P1 Fix: 从coin_strategy_map.json读取excluded标志，动态过滤可交易币种
+# 不再用硬编码COINS列表，避免BTC/ETH/AVAX/DOT等已排除的币被扫描
+def _get_allowed_coins():
+    """返回coin_strategy_map.json中未标记为excluded的币种列表"""
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        smap_path = _Path(__file__).parent / 'coin_strategy_map.json'
+        with open(smap_path) as f:
+            smap = _json.load(f)
+        allowed = []
+        for c in smap.get('coins', []):
+            if not c.get('excluded', False):
+                allowed.append(c['symbol'])
+        if allowed:
+            return allowed
+    except Exception:
+        pass
+    return COINS  # 回退
 
 IC_THRESHOLD = 0.05
 IC_STRONG = 0.10
@@ -1232,7 +1253,9 @@ def get_okx_prices():
             pass
         return coin, None
     with ThreadPoolExecutor(max_workers=7) as ex:
-        futures = [ex.submit(fetch_one, inst, coin) for coin, inst in COIN_INST.items()]
+        # P1 Fix: 用_get_allowed_coins()避免遗漏XRP/BNB/排除币种
+        allowed = _get_allowed_coins()
+        futures = [ex.submit(fetch_one, coin + '-USDT', coin) for coin in allowed]
         for f in as_completed(futures):
             coin, price = f.result()
             if price:
@@ -1283,7 +1306,7 @@ def analyze_multi_timeframe(coin):
     results = {}
     
     # 1d数据（2年，用USD后缀）
-    ticker_1d = COIN_TICKER_1D[coin]
+    ticker_1d = coin + '-USD'  # 直接构造，避免COIN_TICKER_1D缺失新币
     try:
         df_1d = yf.download(ticker_1d, period='2y', interval='1d', progress=False, auto_adjust=True)
         if not df_1d.empty:
@@ -1299,7 +1322,7 @@ def analyze_multi_timeframe(coin):
         pass
     
     # 1h数据（30天，用USD后缀）
-    ticker_1h = COIN_TICKER_1H[coin]
+    ticker_1h = coin + '-USD'  # 直接构造，避免COIN_TICKER_1H缺失新币
     try:
         df_1h = yf.download(ticker_1h, period='30d', interval='1h', progress=False, auto_adjust=True)
         if not df_1h.empty:
@@ -1369,7 +1392,8 @@ def generate_signals():
     signals = []
     prices = {}
 
-    for coin in COINS:
+    # P1 Fix: 只扫描coin_strategy_map中未标记为excluded的币种
+    for coin in _get_allowed_coins():
         # 多周期IC分析
         ic_by_period, best_period, best_period_ic, dfs = analyze_multi_timeframe(coin)
         
@@ -2088,11 +2112,12 @@ def compute_per_coin_allocation(equity=None):
     CONTRACT_VAL = {
         'BTC': 0.01, 'ETH': 0.1, 'SOL': 1, 'AVAX': 1,
         'ADA': 100, 'DOT': 1, 'DOGE': 1000,
+        'XRP': 1, 'BNB': 1,  # P1 Fix: 添加XRP/BNB合约乘数
     }
     try:
         import ccxt
         c = ccxt.okx({'enableRateLimit': True})
-        for coin in COINS:
+        for coin in _get_allowed_coins():
             try:
                 ctVal = CONTRACT_VAL.get(coin, 1)
                 bars = c.fetch_ohlcv('%s-USDT' % coin, '1h', limit=5)
@@ -2123,7 +2148,7 @@ def compute_per_coin_allocation(equity=None):
         dates = sorted(ic_hist.keys())
         if dates:
             recent = dates[-7:] if len(dates) >= 7 else dates
-            for coin in COINS:
+            for coin in _get_allowed_coins():
                 ic_vals = []
                 for d in recent:
                     if coin in ic_hist[d] and isinstance(ic_hist[d][coin], dict):
@@ -2131,14 +2156,14 @@ def compute_per_coin_allocation(equity=None):
                         ic_vals.append(ic_val)
                 ic_means[coin] = sum(ic_vals) / len(ic_vals) if ic_vals else 0.0
     except:
-        ic_means = {c: 0.05 for c in COINS}
+        ic_means = {c: 0.05 for c in _get_allowed_coins()}
 
     # Step 2: 历史表现
     perf = compute_per_coin_performance()
 
-    # Step 3: 综合得分
+    # Step 3: 综合得分（使用动态币种列表）
     scores = {}
-    for coin in COINS:
+    for coin in _get_allowed_coins():
         if coin in blacklist or coin in STRUCTURAL_EXCLUDE:
             scores[coin] = 0.0
             continue
@@ -2158,14 +2183,14 @@ def compute_per_coin_allocation(equity=None):
 
         scores[coin] = ic_score * 0.4 + perf_score * 0.6
 
-    # Step 4: 归一化为分配比例
+    # Step 4: 归一化为分配比例（使用动态币种列表）
     total_score = sum(s for s in scores.values() if s > 0)
     if total_score <= 0:
-        allocations = {c: 0.0 for c in COINS}
+        allocations = {c: 0.0 for c in _get_allowed_coins()}
     else:
         target_total = 0.80  # 保留20%现金
         allocations = {}
-        for c in COINS:
+        for c in _get_allowed_coins():
             if scores[c] > 0:
                 allocations[c] = (scores[c] / total_score) * target_total
             else:
@@ -2200,7 +2225,7 @@ def get_per_coin_allocation(coin=None):
             return allocs.get(coin, 0.0)
         return allocs
     except:
-        return {c: 0.0 for c in COINS}
+        return {c: 0.0 for c in _get_allowed_coins()}
 
 
 def format_allocation_report(alloc_data=None):

@@ -98,6 +98,9 @@ def main():
             pass
 
         coin = t.get('coin', 'UNKNOWN')
+        # P0 Fix: 跳过手动开仓的交易（避免手动仓位污染IC统计）
+        if '历史手动开仓' in t.get('open_reason', ''):
+            continue
         # P2 Fix: 跳过coin_strategy_map中标记为excluded的币种
         if coin in excluded_coins_set:
             continue
@@ -171,8 +174,10 @@ def main():
 
     # 5. 计算新权重（基于WLR）
     # P2 Fix: 要求至少3条有效交易才更新权重（原5笔，系统交易频率低，经常达不到）
-    if trade_count < 3:
-        print(f"\n⚠️  有效交易仅{trade_count}笔 (< 3)，不更新权重，保持现状")
+    # P2 Fix: 要求至少2条有效交易才更新权重（原5笔太高，原3笔仍偏保守）
+    # 系统交易频率低(约2-3次/周)，改为2笔即可触发IC更新
+    if trade_count < 2:
+        print(f"\n⚠️  有效交易仅{trade_count}笔 (< 2)，不更新权重，保持现状")
         return
     print(f"\n✅ {trade_count}笔有效交易，开始更新权重...")
 
