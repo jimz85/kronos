@@ -133,7 +133,9 @@ IC_HISTORY = os.path.join(CACHE_DIR, 'ic_history.json')
 FACTOR_WEIGHTS_FILE = os.path.join(CACHE_DIR, 'factor_weights.json')
 PERF_FILE = os.path.join(CACHE_DIR, 'performance.json')
 
-COINS = ['BTC', 'ETH', 'ADA', 'DOGE', 'AVAX', 'DOT', 'SOL']
+# 根据回测结果优化：只交易有效币种（DOGE/DOT/ADA年化收益>0%）
+# BTC/ETH/AVAX/BNB策略无效，回测亏损，回测结果见 docs/strategy_recommendation.md
+COINS = ['DOGE', 'DOT', 'ADA', 'XRP', 'SOL']
 COIN_INST = {
     'BTC': 'BTC-USDT', 'ETH': 'ETH-USDT', 'ADA': 'ADA-USDT',
     'DOGE': 'DOGE-USDT', 'AVAX': 'AVAX-USDT', 'DOT': 'DOT-USDT', 'SOL': 'SOL-USDT',
