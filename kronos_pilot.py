@@ -1412,9 +1412,6 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
         # ── P2 Fix: 补充完整交易日志 ───────────────────────────────
         # 开仓决策理由（来自signal_text，gemma4/规则引擎的判断依据）
         'open_reason': signal.get('reason') or signal.get('open_reason') or signal.get('signal_text', ''),
-        # 止损止盈价格（计算得出）
-        'sl_price': round(price * (1 - sl_pct / 100), 6),
-        'tp_price': round(price * (1 + tp_pct / 100), 6),
         # 开仓时市场状态
         'rsi_at_entry': signal.get('rsi'),
         'adx_at_entry': signal.get('adx'),
@@ -1429,6 +1426,16 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
         'close_reason': None,   # 平仓时由close_paper_trade填写
         'okx_result': result,
     }
+    # ✅ P0 Fix: 修复SL/TP方向+去除多余的/100
+    # _get_volatility_stop返回小数(如0.05=5%)，直接用(1-sl_pct)即可
+    # LONG: SL在entry下方，TP在entry上方；SHORT: SL在entry上方，TP在entry下方
+    entry_px = trade.get('entry_price', price)
+    if signal.get('direction') == 'LONG':
+        trade['sl_price'] = round(entry_px * (1 - sl_pct), 6)
+        trade['tp_price'] = round(entry_px * (1 + tp_pct), 6)
+    else:  # SHORT
+        trade['sl_price'] = round(entry_px * (1 + sl_pct), 6)
+        trade['tp_price'] = round(entry_px * (1 - tp_pct), 6)
     if status == 'FAILED':
         trade['close_reason'] = result.get('msg', 'open_failed')[:50] if isinstance(result, dict) else 'open_failed'
     log.append(trade)
@@ -2067,15 +2074,24 @@ def run_full_report():
                 lines_out.append('  ' + line.strip())
 
     report = '\n'.join(lines_out)
-    if len([l for l in lines_out if l.strip()]) < 2 and not new_trades and not proposal_result:
-        report = None
-    
-    if report:
+
+    # 飞书推送：静默原则——只在有新交易/熔断/异常时推
+    # 正常IC权重/仓位分配报告 → 本地日志静默
+    should_push = bool(new_trades)  # 只在新开仓时推飞书
+    if not should_push:
+        try:
+            from kronos_heartbeat import check_circuit_breaker
+            tripped, _, _ = check_circuit_breaker()
+            should_push = bool(tripped)  # 熔断触发时也推
+        except Exception:
+            pass
+
+    if should_push:
         _pilot_logger.info(report)
         pushed = push_feishu(report)
         _pilot_logger.info('飞书推送: %s' % ('成功' if pushed else '失败'))
     else:
-        _pilot_logger.info('日报: 无更新（静默）')
+        _pilot_logger.debug('日报: 无实际操作（静默）')
     
     # v1.4: 保存市场情绪数据供 kronos_multi_coin 使用（L1-L5全层）
     try:
