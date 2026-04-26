@@ -397,6 +397,52 @@ tail -100 logs/kronos_pilot.log
 
 ---
 
+## No Signals Debugging
+
+When the system generates no signals, check `skipped_signals.json`:
+
+```python
+# Path
+~/.hermes/cron/output/skipped_signals.json
+
+# Analyze skip reasons
+python3 -c "
+import json
+data = json.load(open('~/.hermes/cron/output/skipped_signals.json'))
+from collections import Counter
+print(Counter(s['skip_reason'] for s in data).most_common(5))
+"
+```
+
+### IC Direction Mismatch (Most Common Cause)
+
+**Symptom**: 74+ skips with reason "方向背离(策略SHORT但IC方向做多)"
+
+**Root Cause**: The IC direction check confused SHORT momentum with LONG mean reversion:
+- SHORT strategy (RSI>65) checked `rsi_inv` IC — WRONG
+- `rsi_inv` IC positive = mean reversion confirmed, NOT momentum
+- Should check `rsi` IC for SHORT: negative value = high RSI →下跌 confirmed
+
+**Fix in generate_signals()**:
+```python
+# WRONG (line ~1785):
+rsi_ic = ic_now.get('rsi_inv', 0)
+direction_match = (direction == 'LONG' and rsi_ic > 0) or \
+                  (direction == 'SHORT' and rsi_ic < 0)
+
+# CORRECT:
+rsi_ic = ic_now.get('rsi', 0)           # momentum IC for SHORT
+rsi_inv_ic = ic_now.get('rsi_inv', 0)  # mean reversion IC for LONG
+if direction == 'LONG':
+    direction_match = rsi_inv_ic > 0   # low RSI → upward
+else:  # SHORT
+    direction_match = rsi_ic < 0       # high RSI → downward
+```
+
+**Also ensure compute_ic() includes both 'rsi' and 'rsi_inv'** as separate factors.
+
+---
+
 ## Documentation
 
 When modifying code:
