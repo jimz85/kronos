@@ -13,6 +13,8 @@ Kronos自动驾驶系统v3.0 - 完整版
   python3 kronos_pilot.py --log        查看最近交易记录
 """
 
+from __future__ import annotations
+
 import os, sys, json, time, requests as _req
 import pathlib, logging
 from logging.handlers import RotatingFileHandler
@@ -562,11 +564,26 @@ def get_cross_layer_signals():
 #   - HTTP 非0错误码: 不重试，立即返回
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _okx_request_with_retry(method, url, headers=None, data=None,
-                             max_retries=2, timeout=10):
-    """
-    包装 requests，带重试 + Retry-After 解析 + 幂等安全。
-    返回: (success: bool, response: requests.Response, error: str or None)
+def _okx_request_with_retry(
+    method: str,
+    url: str,
+    headers: dict | None = None,
+    data: str | None = None,
+    max_retries: int = 2,
+    timeout: int = 10,
+) -> tuple[bool, _req.Response, str]:
+    """包装 requests，带重试 + Retry-After 解析 + 幂等安全。
+
+    Args:
+        method: HTTP方法 ('GET' or 'POST')
+        url: 请求URL
+        headers: HTTP请求头
+        data: 请求体 (JSON字符串)
+        max_retries: 最大重试次数
+        timeout: 请求超时秒数
+
+    Returns:
+        tuple[bool, Response, str]: (是否成功, 响应对象, 错误信息或None)
     """
     import time
 
@@ -633,26 +650,38 @@ def _okx_request_with_retry(method, url, headers=None, data=None,
     return False, None, 'Max retries exceeded'
 
 
-def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20, price=None):
-    """
-    OKX下单（支持模拟盘和实盘）
-    重要：SL/TP通过独立条件单挂出，不用attachAlgoOrds（对市价单不可靠）
+def okx_place_order(
+    coin: str,
+    side: str,
+    size_contracts: int,
+    lev: int = 3,
+    sl_pct: float = 0.05,
+    tp_pct: float = 0.20,
+    price: float | None = None,
+) -> dict:
+    """OKX下单（支持模拟盘和实盘）
 
+    Args:
+        coin: BTC, ETH, ADA等
+        side: 'buy'(做多) 或 'sell'(做空)
+        size_contracts: 合约张数
+        lev: 杠杆倍数
+        sl_pct: 止损百分比
+        tp_pct: 止盈百分比
+        price: 指定价格（可选，默认市价）
+
+    Returns:
+        dict: {
+            'success': bool,
+            'code': str,
+            'entry_price': float,
+            'sl': {'success': bool, 'algoId': str|None, 'error': str|None},
+            'tp': {'success': bool, 'algoId': str|None, 'error': str|None},
+            'position_closed': bool,
+        }
+
+    Important: SL/TP通过独立条件单挂出（OKX OCO订单）
     【风控】：SL/TP任一失败 → 立即市价平仓（不能有无保护持仓）
-    coin: BTC, ETH, ADA等
-    side: 'buy'(做多) 或 'sell'(做空)
-    size_contracts: 合约张数
-    lev: 杠杆倍数
-    sl_pct: 止损百分比
-    tp_pct: 止盈百分比
-
-    返回: {
-        'success': bool,              # 整体是否完全成功
-        'code': str,                 # 市价单code
-        'entry_price': float,         # 成交价
-        'sl': {'success': bool, 'algoId': str or None, 'error': str or None},
-        'tp': {'success': bool, 'algoId': str or None, 'error': str or None},
-    }
     """
     import hmac, hashlib, base64
 
@@ -795,11 +824,17 @@ def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20,
                 'tp': {'success': False, 'error': f'Network error: {type(e).__name__}'}}
 
 
-def _okx_market_close(instId, existing_side, size_contracts):
-    """
-    市价平仓（紧急用途：SL/TP挂单失败后立即执行）
-    existing_side: 'buy' → 做空平多；'sell' → 做多平空
-    返回: bool 是否成功
+def _okx_market_close(instId: str, existing_side: str, size_contracts: int) -> bool:
+    """市价平仓（紧急用途：SL/TP挂单失败后立即执行）
+
+    Args:
+        instId: 合约ID (e.g. 'BTC-USDT-SWAP')
+        existing_side: 'buy' → 做空平多；'sell' → 做多平空
+        size_contracts: 合约张数
+
+    Returns:
+        bool: 是否成功
+
     P0 Fix: 添加重试机制，网络/限流失败时最多重试2次
     """
     import hmac, hashlib, base64
@@ -844,9 +879,26 @@ def _okx_market_close(instId, existing_side, size_contracts):
         return False
 
 
-def _place_sl_tp_algo(instId, side, sz, entry_price, sl_pct, tp_pct):
-    """
-    为已开仓位挂OCO Bracket订单（SL+TP合并为1个OCO订单）
+def _place_sl_tp_algo(
+    instId: str,
+    side: str,
+    sz: float,
+    entry_price: float,
+    sl_pct: float,
+    tp_pct: float,
+) -> dict:
+    """为已开仓位挂OCO Bracket订单（SL+TP合并为1个OCO订单）
+
+    Args:
+        instId: 合约ID (e.g. 'BTC-USDT-SWAP')
+        side: 'buy' 或 'sell'
+        sz: 合约张数
+        entry_price: 开仓价格
+        sl_pct: 止损百分比
+        tp_pct: 止盈百分比
+
+    Returns:
+        dict: {'sl': {...}, 'tp': {...}} 各含 success/algoId/price/error
 
     P0 Bug修复（2026-04-26）：
     1. OKX每仓位只允许1个条件单，必须用ordType='oco'合并SL+TP
@@ -955,8 +1007,15 @@ def _place_sl_tp_algo(instId, side, sz, entry_price, sl_pct, tp_pct):
     return results
 
 
-def _get_position_entry_price(instId):
-    """从当前持仓获取入场价"""
+def _get_position_entry_price(instId: str) -> float:
+    """从当前持仓获取入场价
+
+    Args:
+        instId: 合约ID (e.g. 'BTC-USDT-SWAP')
+
+    Returns:
+        float: 持仓入场价格，失败返回0.0
+    """
     import hmac, hashlib, base64
     try:
         ts = _ts()
@@ -1022,8 +1081,12 @@ def _set_leverage(instId, lev):
     except Exception as e:
         _pilot_logger.error(f'  杠杆设置异常: {e}')
 
-def okx_get_positions():
-    """获取当前持仓（OKX实盘）"""
+def okx_get_positions() -> list[dict]:
+    """获取当前持仓（OKX实盘）
+
+    Returns:
+        list[dict]: 持仓列表，每项包含OKXpositions接口返回的字段
+    """
     if DEMO_MODE:
         return {}
     
@@ -1561,7 +1624,7 @@ def adx(h, lo, c, p=14):
 
 def compute_ic(factors_df, ret_series, window=60):
     results = {}
-    for fac in ['rsi_inv', 'vol_ratio', 'adx', 'trend_ma20']:
+    for fac in ['rsi', 'rsi_inv', 'vol_ratio', 'adx', 'trend_ma20']:
         valid = factors_df[fac].notna() & ret_series.notna()
         fa = factors_df.loc[valid, fac].values[-window:]
         ra = ret_series.loc[valid].values[-window:]
@@ -1642,8 +1705,8 @@ def analyze_multi_timeframe(coin):
         f['vol_ratio'] = f['vol_ma5'] / f['vol_ma20'].replace(0, np.nan)
         f['trend_ma20'] = close / close.rolling(20).mean() - 1
         f['ret_next'] = close.pct_change().shift(-1)
-        
-        fd = f[['rsi_inv', 'vol_ratio', 'adx', 'trend_ma20']]
+
+        fd = f[['rsi', 'rsi_inv', 'vol_ratio', 'adx', 'trend_ma20']]
         window = min(60, len(fd) - 5)
         if window < 20:
             continue
@@ -1709,7 +1772,8 @@ def generate_signals():
         close_v = close.iloc[-1]
         
         # IC分析（用60天窗口，signed值用于方向判断）
-        fd = f[['rsi_inv', 'vol_ratio', 'adx', 'trend_ma20']]
+        # ✅ P2 Fix: RSI和RSI_inv分开检测，SHORT检查RSI IC（动量），LONG检查RSI_inv IC（均值回归）
+        fd = f[['rsi', 'rsi_inv', 'vol_ratio', 'adx', 'trend_ma20']]
         ic_now = compute_ic(fd, f['ret_next'], 60)
         ic_7d = compute_ic(fd.iloc[:-7], f['ret_next'].iloc[:-7], 60) if len(f) > 7 else ic_now
         decay = {fac: (ic_now.get(fac, 0) - ic_7d.get(fac, 0)) / 7 for fac in ic_now}
@@ -1718,8 +1782,9 @@ def generate_signals():
         weights, is_adaptive = get_ic_weights()
         # 计算加权IC分数（综合所有因子）
         ic_score = sum(ic_now.get(f, 0) * weights.get(f, 0) for f in weights)
-        # 主因子(rsi_inv)的IC驱动方向
-        rsi_ic = ic_now.get('rsi_inv', 0)
+        # RSI IC：原始RSI（用于SHORT动量验证）；RSI_inv IC：逆RSI（用于LONG均值回归验证）
+        rsi_ic = ic_now.get('rsi', 0)       # 原始RSI的IC：负值=高RSI→下跌（动量SHORT确认）
+        rsi_inv_ic = ic_now.get('rsi_inv', 0)  # 逆RSI的IC：正值=低RSI→上涨（均值回归LONG确认）
         rsi_ic_abs = abs(rsi_ic)
 
         # 多空方向（RSI+ADX核心策略）
@@ -1738,12 +1803,16 @@ def generate_signals():
         # ============================================================
         # IC自适应权重过滤
         # ============================================================
-        # 方向一致性：IC的符号必须和策略方向匹配
-        # LONG策略 → 需要rsi_ic > 0（低RSI→上涨）; SHORT策略 → 需要rsi_ic < 0（高RSI→下跌）
-        direction_match = (direction == 'LONG' and rsi_ic > 0) or (direction == 'SHORT' and rsi_ic < 0)
+        # 方向一致性：LONG → RSI_inv IC > 0（低RSI→上涨）；SHORT → RSI IC < 0（高RSI→下跌）
+        if direction == 'LONG':
+            direction_match = rsi_inv_ic > 0   # 均值回归确认
+            ic_check_val = rsi_inv_ic
+        else:  # SHORT
+            direction_match = rsi_ic < 0   # 动量确认：高RSI→下跌
+            ic_check_val = rsi_ic
 
-        # IC强度判断
-        ic_dir_str = '做多' if rsi_ic > 0 else '做空'
+        # IC强度判断（用绝对值）
+        ic_dir_str = '做多' if ic_check_val > 0 else '做空'
         if rsi_ic_abs < IC_THRESHOLD:
             skip_reason = f'IC强度不足({rsi_ic_abs:.3f}<{IC_THRESHOLD})'
         elif not direction_match:
@@ -1753,7 +1822,7 @@ def generate_signals():
 
         # 记录被跳过的信号（用于事后分析）
         if skip_reason:
-            log_skipped_signal(coin, direction, strategy, rsi_ic, rsi_v, adx_v, best_period, skip_reason)
+            log_skipped_signal(coin, direction, strategy, ic_check_val, rsi_v, adx_v, best_period, skip_reason)
             continue
 
         # 衰减降权
