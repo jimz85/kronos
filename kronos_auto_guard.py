@@ -16,8 +16,11 @@ import json
 import time
 import subprocess
 import requests
+import logging
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger('kronos_auto_guard')
 
 # 加载.env
 from dotenv import load_dotenv
@@ -90,7 +93,7 @@ def feishu_notify(text):
             headers=headers, json=payload, timeout=10
         )
     except Exception as e:
-        print(f"飞书通知失败: {e}")
+        logger.error(f"飞书通知失败: {e}")
 
 # ============ 价格获取 ============
 def get_price(coin):
@@ -125,9 +128,9 @@ def cancel_orders_for_coin(coin, sl_tp_orders=None):
         r = _req('POST', '/api/v5/trade/cancel-algos', body)
         if r.get('code') == '0':
             cancelled.append(f'algoIds={algo_ids}')
-            print(f'  ✅ 撤销{coin} OCO/条件单: {algo_ids}')
+            logger.info(f'  ✅ 撤销{coin} OCO/条件单: {algo_ids}')
         else:
-            print(f'  ❌ 撤销{coin} OCO失败: {r.get("msg")}')
+            logger.error(f'  ❌ 撤销{coin} OCO失败: {r.get("msg")}')
             # 回退到逐个cancel-order
             for aid in algo_ids:
                 body2 = json.dumps({'instId': f'{coin}-USDT-SWAP', 'ordId': str(aid)})
@@ -482,13 +485,13 @@ def execute_actions(actions, positions):
 
 # ============ 主守护逻辑 ============
 def guard_cycle():
-    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] === Kronos自动守护 ===")
+    logger.info(f"\n[{datetime.now().strftime('%H:%M:%S')}] === Kronos自动守护 ===")
 
     # 1. 检查熔断状态
     circuit_tripped, circuit_reason, circuit_state = check_circuit_breaker()
 
     if circuit_tripped:
-        print("🚨 熔断已触发！")
+        logger.warning("🚨 熔断已触发！")
         feishu_notify(
             f"🚨 Kronos熔断触发\n"
             f"原因: {circuit_reason}\n"
@@ -499,7 +502,7 @@ def guard_cycle():
     # 2. 分析持仓危险状态（返回positions用于后续执行）
     positions, dangers = analyze_positions()
 
-    print(f"持仓数: {len(positions) if positions else 0}, 危险项: {len(dangers)}")
+    logger.info(f"持仓数: {len(positions) if positions else 0}, 危险项: {len(dangers)}")
 
     # 3. 合并危险 + 熔断
     all_warnings = [d for d in dangers if d['severity'] == 'danger']
@@ -515,7 +518,7 @@ def guard_cycle():
     # 5. 如果有危险项 → 调用MiniMax深度审查
     minimax_result = None
     if all_warnings or circuit_tripped:
-        print("⚠️ 发现危险，启动MiniMax深度审查...")
+        logger.warning("⚠️ 发现危险，启动MiniMax深度审查...")
         feishu_notify(
             f"🤖 Kronos自动守护\n"
             f"检测到危险条件，正在分析...\n"
@@ -539,7 +542,7 @@ def guard_cycle():
         ]
 
         minimax_result = minimax_review(positions_data, all_warnings, circuit_state)
-        print(f"MiniMax审查结果:\n{minimax_result}")
+        logger.info(f"MiniMax审查结果:\n{minimax_result}")
 
         # 6. 发送MiniMax审查结果到飞书
         if minimax_result:
@@ -567,7 +570,7 @@ def guard_cycle():
             coin = d['coin']
             reason_str = f'SL距{sl_d:.1f}%' if sl_d < ULTRA_DANGER_SL else ''
             reason_str += f'强平距{liq_d:.1f}%' if liq_d < ULTRA_DANGER_LIQ else ''
-            print(f'🚨 极度危险！{coin} {reason_str}，直接市价平仓')
+            logger.warning(f'🚨 极度危险！{coin} {reason_str}，直接市价平仓')
             pos = positions.get(coin)
             if pos:
                 side = pos['side']
@@ -597,9 +600,9 @@ def guard_cycle():
                     msg = f'🚨 极度危险！{coin} 市价强平 | {reason_str}'
                     feishu_notify(msg)
                     executed.append(msg)
-                    print(f'✅ {coin} 市价强平成功')
+                    logger.info(f'✅ {coin} 市价强平成功')
                 else:
-                    print(f'❌ {coin} 强平失败: {r.get("msg")}')
+                    logger.error(f'❌ {coin} 强平失败: {r.get("msg")}')
 
     # 8. 收紧SL（仅限ULTRA_DANGER时由kronos_multi_coin统一处理）
     # kronos_auto_guard = 紧急平仓唯一权威，SL/TP管理全归kronos_multi_coin
@@ -614,7 +617,7 @@ def guard_cycle():
             f"{' | '.join(executed[:5])}"
         )
     else:
-        print("✅ 静默 (无危险条件)")
+        logger.info("✅ 静默 (无危险条件)")
 
     return {
         'circuit_tripped': circuit_tripped,
@@ -638,7 +641,7 @@ if __name__ == '__main__':
                 cd = json.load(f)
             last_action = cd.get('last_emergency_action_ts', 0)
             if time.time() - last_action < COOLDOWN_SEC:
-                print(f'⏭️ Cooldown生效（{COOLDOWN_SEC//60}分钟），距上次紧急操作{time.time()-last_action:.0f}秒，跳过')
+                logger.info(f'⏭️ Cooldown生效（{COOLDOWN_SEC//60}分钟），距上次紧急操作{time.time()-last_action:.0f}秒，跳过')
                 exit(0)
     except:
         pass
@@ -647,18 +650,18 @@ if __name__ == '__main__':
     try:
         lock.acquire()
         result = guard_cycle()
-        print(f"\n结果: {json.dumps(result, ensure_ascii=False, indent=2)}")
+        logger.info(f"\n结果: {json.dumps(result, ensure_ascii=False, indent=2)}")
         
         # 执行了紧急平仓 → 写cooldown，防止kronos_multi_coin立即重新开仓
         if result and result.get('executed'):
             try:
                 with open(COOLDOWN_FILE, 'w') as f:
                     json.dump({'last_emergency_action_ts': time.time(), 'reason': 'guard_emergency'}, f)
-                print(f'⚠️ 紧急操作已执行，写入{COOLDOWN_SEC//60}分钟cooldown')
+                logger.warning(f'⚠️ 紧急操作已执行，写入{COOLDOWN_SEC//60}分钟cooldown')
             except:
                 pass
     except Exception as e:
-        print(f"执行异常: {e}")
+        logger.error(f"执行异常: {e}")
         import traceback
         traceback.print_exc()
         feishu_notify(f"🚨 Kronos自动守护异常: {e}")

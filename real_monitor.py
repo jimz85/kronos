@@ -5,9 +5,11 @@
 - 对比paper_trades.json，发现差异立即告警
 - 为每个持仓设置正确的SL/TP条件单（独立接口）
 """
-import os, sys, json, time, hmac, hashlib, base64, requests
+import os, sys, json, time, hmac, hashlib, base64, requests, logging
 from pathlib import Path
 from datetime import datetime
+
+logger = logging.getLogger('real_monitor')
 
 # 导入kronos_pilot的推送函数和kronos_utils的PnL计算
 sys.path.insert(0, str(Path(__file__).parent))
@@ -48,7 +50,7 @@ def _req(method, path, body=''):
         r = requests.post(url, headers=h, data=body, timeout=10)
     result = r.json()
     if result.get('code') not in ('0', None):
-        print('    API错误: %s %s' % (result.get('code'), result.get('msg', '')))
+        logger.error('    API错误: %s %s' % (result.get('code'), result.get('msg', '')))
     return result
 
 
@@ -1092,7 +1094,7 @@ def sync_paper_log(real_pos, paper_path=None):
 
     if added or updated:
         atomic_write_json(paper_path, paper, indent=2)
-        print('  纸仓同步: 补录%s | 更新%s' % (
+        logger.info('  纸仓同步: 补录%s | 更新%s' % (
             ', '.join(added) if added else '-',
             ', '.join(updated) if updated else '-'))
 
@@ -1201,7 +1203,7 @@ def check_account_health(real_pos, balance_info=None):
     upl = balance_info.get('upl', 0)
     
     # 1. 基础余额
-    print('  账户: 总权益=$%.2f 可用=$%.2f 保证金=$%.2f 浮盈=$%+.2f' % (
+    logger.info('  账户: 总权益=$%.2f 可用=$%.2f 保证金=$%.2f 浮盈=$%+.2f' % (
         total_eq, avail_eq, frozen, upl))
     
     # 2. 保证金使用率
@@ -1217,7 +1219,7 @@ def check_account_health(real_pos, balance_info=None):
         warnings.append('⚠️ 保证金使用率%.0f%%（偏高）' % margin_ratio)
         is_healthy = False
     else:
-        print('  保证金使用率: %.0f%% ✅' % margin_ratio)
+        logger.info('  保证金使用率: %.0f%% ✅' % margin_ratio)
     
     # 3. 持仓数
     pos_count = len([c for c, p in real_pos.items() if p['size'] > 0])
@@ -1225,14 +1227,14 @@ def check_account_health(real_pos, balance_info=None):
         warnings.append('🚨 已达最大持仓数%d/%d，暂停新开仓' % (pos_count, MAX_POSITIONS))
         is_healthy = False
     else:
-        print('  持仓数: %d/%d ✅' % (pos_count, MAX_POSITIONS))
+        logger.info('  持仓数: %d/%d ✅' % (pos_count, MAX_POSITIONS))
     
     # 4. 新开仓空间
     space = MAX_POSITIONS - pos_count
-    print('  新开仓空间: 最多%d个 | 可用保证金$%.2f' % (space, avail_eq))
+    logger.info('  新开仓空间: 最多%d个 | 可用保证金$%.2f' % (space, avail_eq))
     
     # 5. 每笔仓位的保证金占比（集中度）
-    print('  仓位明细:')
+    logger.info('  仓位明细:')
     for coin, pos in real_pos.items():
         if pos['size'] <= 0:
             continue
@@ -1254,7 +1256,7 @@ def check_account_health(real_pos, balance_info=None):
                 flag += ' 🔴深亏%.0f%%' % loss_pct
                 warnings.append('🔴 %s浮亏$%+.2f(占总权益%.0f%%)' % (coin, pos['unrealized_pnl'], loss_pct))
         
-        print('  - %s: %s %s张 保证金$%.2f(%.0f%%) 浮盈$%+.2f%s' % (
+        logger.info('  - %s: %s %s张 保证金$%.2f(%.0f%%) 浮盈$%+.2f%s' % (
             coin, pos['side'], pos['size'],
             margin_used, pct_of_eq,
             pos['unrealized_pnl'], flag))
@@ -1263,12 +1265,12 @@ def check_account_health(real_pos, balance_info=None):
     new_possible = True
     if avail_eq < MIN_BALANCE:
         new_possible = False
-        print('  💡 可用保证金$%.2f（<$%d），当前无法开新仓' % (avail_eq, MIN_BALANCE))
+        logger.info('  💡 可用保证金$%.2f（<$%d），当前无法开新仓' % (avail_eq, MIN_BALANCE))
     elif space <= 0:
         new_possible = False
-        print('  💡 已达持仓上限%d个' % MAX_POSITIONS)
+        logger.info('  💡 已达持仓上限%d个' % MAX_POSITIONS)
     else:
-        print('  ✅ 可开新仓: %d个 | 可用$%.2f' % (space, avail_eq))
+        logger.info('  ✅ 可开新仓: %d个 | 可用$%.2f' % (space, avail_eq))
     
     return is_healthy, warnings
 
@@ -1322,7 +1324,7 @@ def check_hold_timeout(real_pos):
             continue
         if coin not in open_trades:
             # 没有记录，尝试从OKX持仓详情估算
-            print('  💡 %s: 无开仓记录，跳过超时检查' % coin)
+            logger.info('  💡 %s: 无开仓记录，跳过超时检查' % coin)
             continue
 
         open_time_str = open_trades[coin].get('open_time', '')
@@ -1341,13 +1343,13 @@ def check_hold_timeout(real_pos):
                     open_time = open_time.replace(tzinfo=zoneinfo.ZoneInfo('Asia/Shanghai'))
             hours_elapsed = (now_cst - open_time).total_seconds() / 3600
         except Exception as e:
-            print('  ⚠️ %s: 无法解析开仓时间 %s (%s)' % (coin, open_time_str, e))
+            logger.warning('  ⚠️ %s: 无法解析开仓时间 %s (%s)' % (coin, open_time_str, e))
             continue
 
         pct = hours_elapsed / MAX_HOLD_HOURS * 100
         flag = '🔴' if hours_elapsed >= MAX_HOLD_HOURS else '🟡'
 
-        print('  %s %s: 已持仓%.1f小时 / %d小时 (%.0f%%)' % (
+        logger.info('  %s %s: 已持仓%.1f小时 / %d小时 (%.0f%%)' % (
             flag, coin, hours_elapsed, MAX_HOLD_HOURS, pct))
 
         if hours_elapsed >= MAX_HOLD_HOURS:
@@ -1364,7 +1366,7 @@ def check_hold_timeout(real_pos):
 
 def monitor_and_fix():
     """主监控函数：查询真实持仓，补录纸仓，修复SL/TP，生存层级检查"""
-    print('[%s] 真实持仓监控' % datetime.now().strftime('%H:%M:%S'))
+    logger.info('[%s] 真实持仓监控' % datetime.now().strftime('%H:%M:%S'))
 
     # 0. 生存层级检查
     balance_info = get_account_balance()
@@ -1374,13 +1376,13 @@ def monitor_and_fix():
         prev_state = load_treasury_state()
         equity = prev_state.get('equity') or prev_state.get('daily_snapshot_equity') or 0
         if equity > 0:
-            print('  ⚠️  API equity=0，使用 treasury 快照 $%.2f' % equity)
+            logger.warning('  ⚠️  API equity=0，使用 treasury 快照 $%.2f' % equity)
     tier, tier_state = get_survival_tier(equity)
     multiplier = get_position_multiplier(tier)
     can_open, open_reason = can_open_new_position(tier)
 
-    print('  ├─ 权益: $%.2f | 层级: %s | 仓位倍数: ×%.2f' % (equity, tier.upper(), multiplier))
-    print('  └─ 开仓权限: %s' % open_reason)
+    logger.info('  ├─ 权益: $%.2f | 层级: %s | 仓位倍数: ×%.2f' % (equity, tier.upper(), multiplier))
+    logger.info('  └─ 开仓权限: %s' % open_reason)
 
     # 0c. 排除币种检查：发现排除名单上的币有持仓 → 立即强制平仓
     from kronos_multi_coin import get_coin_strategy_map
@@ -1396,17 +1398,17 @@ def monitor_and_fix():
                         size = pos.get('size', 0)
                         if size > 0:
                             side = pos.get('side', 'buy')
-                            print('  🚨 排除币种 %s 有持仓 %s张 → 强制平仓' % (coin, size))
+                            logger.warning('  🚨 排除币种 %s 有持仓 %s张 → 强制平仓' % (coin, size))
                             from kronos_active_judgment import close_position as close_pos_action
                             close_result = close_pos_action(coin, side, size, reason='排除币种强制平仓')
-                            print('     平仓结果: %s' % close_result)
+                            logger.info('     平仓结果: %s' % close_result)
                             push_feishu('🚨 Kronos排除币种强制平仓\n%s %s张 平仓结果: %s' % (coin, size, close_result))
 
     # 0b. 财务政策检查（更新快照 + 检查限制）
     update_treasury_snapshots(equity)
     treasury_allowed, treasury_reason, treasury_warnings = check_treasury_limits(equity)
     if not treasury_allowed:
-        print('  ⚠️  财务限制: %s' % treasury_reason.replace('\n', ' '))
+        logger.warning('  ⚠️  财务限制: %s' % treasury_reason.replace('\n', ' '))
         push_feishu('🚫 Kronos财务限制\n' + treasury_reason)
 
     # 层级降级时推送告警
@@ -1433,13 +1435,13 @@ def monitor_and_fix():
     real_pos_all, err2 = get_real_positions(include_closed=True)  # 含已平仓
 
     if err:
-        print('  ❌ ' + err)
+        logger.error('  ❌ ' + err)
         return ['❌ 无法连接OKX: ' + err]
 
     if not real_pos:
-        print('  ✅ OKX无持仓')
+        logger.info('  ✅ OKX无持仓')
         # 无持仓时也要输出层级状态
-        print('  %s' % format_tier_report(tier_state, equity))
+        logger.info('  %s' % format_tier_report(tier_state, equity))
         return None
 
     # 2. 同步纸仓（用含已平仓的完整数据，检测持仓消失）
@@ -1451,7 +1453,7 @@ def monitor_and_fix():
     # 4. 查活跃SL/TP条件单
     real_orders, _ = get_real_sl_tp_orders()
 
-    print('  真实持仓:')
+    logger.info('  真实持仓:')
     alerts = []
     for coin, pos in real_pos.items():
         size = pos['size']
@@ -1463,7 +1465,7 @@ def monitor_and_fix():
         lev = pos['leverage']
         has_sl_tp = coin in real_orders and (('sl' in real_orders[coin]) or ('tp' in real_orders[coin]))
 
-        print('  - %s: %s %s张 均价$%.4f 浮盈$%+.2f 杠杆%dx %s' % (
+        logger.info('  - %s: %s %s张 均价$%.4f 浮盈$%+.2f 杠杆%dx %s' % (
             coin, side, size, entry, pnl, lev,
             '✅ SL/TP已挂' if has_sl_tp else '⚠️ 无SL/TP'))
 
@@ -1477,7 +1479,7 @@ def monitor_and_fix():
                 sl_pct, tp_pct = sl_price_calc, tp_price_calc
             results = place_sl_tp(coin, side, size, entry, sl_pct, tp_pct)
             for name, status in results.items():
-                print('    %s: %s' % (name, status))
+                logger.info('    %s: %s' % (name, status))
             placed = [k for k, v in results.items() if v.startswith('✅')]
             if len(placed) == 2:
                 alerts.append('✅ %s SL/TP已挂: 止损$%s 止盈$%s' % (coin, sl_price_calc, tp_price_calc))
@@ -1494,7 +1496,7 @@ def monitor_and_fix():
                     results = place_sl_tp(coin, side, size, entry, sl_price_calc, tp_price_calc)
                     for name, status in results.items():
                         if '止盈' in name or 'TP' in name:
-                            print('    %s: %s' % (name, status))
+                            logger.info('    %s: %s' % (name, status))
                             placed_tp = [k for k, v in results.items() if v.startswith('✅')]
                             if placed_tp:
                                 alerts.append('✅ %s TP补挂成功: $%s' % (coin, tp_price_calc))
@@ -1510,7 +1512,7 @@ def monitor_and_fix():
 
     # 7. 层级限制说明（不推飞书，正常静默）
     if tier in ('critical', 'paused'):
-        print('  %s' % format_tier_report(tier_state, equity).replace('\n', '\n  '))
+        logger.info('  %s' % format_tier_report(tier_state, equity).replace('\n', '\n  '))
 
     # v1.4: 飞书告警去重 - 相同内容30分钟内不重复推送
     ALERT_COOLDOWN_MINUTES = 30
@@ -1532,12 +1534,12 @@ def monitor_and_fix():
                 key = re.sub(r'[\d.]+%?', '', w).strip().replace('⚠️ ', '')
                 coin_list.append(key)
             coins_str = ', '.join(coin_list)
-            print(f'  飞书静默(已知状态): {coins_str}')
+            logger.info(f'  飞书静默(已知状态): {coins_str}')
             persistent_warnings = []
 
         if feishu_alerts:
             msg = 'Kronos账户告警:\n' + '\n'.join(feishu_alerts)
-            print('  飞书推送: %s' % msg[:300])
+            logger.info('  飞书推送: %s' % msg[:300])
             push_feishu(msg)
 
     return all_alerts if all_alerts else None
@@ -1552,22 +1554,22 @@ if __name__ == '__main__':
         prev_state = load_treasury_state()
         equity = prev_state.get('equity') or prev_state.get('daily_snapshot_equity') or 0
         if equity > 0:
-            print('  ⚠️  API equity=0，使用 treasury 快照 $%.2f' % equity)
+            logger.warning('  ⚠️  API equity=0，使用 treasury 快照 $%.2f' % equity)
 
     # 先更新财务快照（确保报告有数据）
     update_treasury_snapshots(equity)
 
     # 生存层级
     tier, state = get_survival_tier(equity)
-    print('━━━ Kronos生存层级系统 ━━━')
-    print(format_tier_report(state, equity))
-    print()
-    print('━━━ Kronos财务政策 ━━━')
-    print(format_treasury_report(equity))
-    print()
+    logger.info('━━━ Kronos生存层级系统 ━━━')
+    logger.info(format_tier_report(state, equity))
+    logger.info('')
+    logger.info('━━━ Kronos财务政策 ━━━')
+    logger.info(format_treasury_report(equity))
+    logger.info('')
 
     result = monitor_and_fix()
     if result:
-        print('\n需要关注:', result)
+        logger.info('\n需要关注: %s' % result)
     else:
-        print('\n✅ 系统正常')
+        logger.info('\n✅ 系统正常')

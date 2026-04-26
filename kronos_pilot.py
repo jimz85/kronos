@@ -89,7 +89,7 @@ DEMO_MODE = (not OKX_API_KEY) or _is_sim_key
 
 # 启动时验证必需的环境变量
 if not OKX_API_KEY or not OKX_SECRET:
-    print("❌ 错误: OKX_API_KEY 和 OKX_SECRET 环境变量必须设置")
+    _pilot_logger.error("❌ 错误: OKX_API_KEY 和 OKX_SECRET 环境变量必须设置")
     sys.exit(1)
 
 # OKX账户模式缓存（避免每次API调用）
@@ -235,7 +235,7 @@ def is_blacklisted(symbol):
                     # 余额已恢复，提前解锁
                     del _blacklist[symbol]
                     save_blacklist()
-                    print(f'  ✅ {symbol} 余额已恢复(\${equity:.2f})，提前解锁')
+                    _pilot_logger.info(f'  ✅ {symbol} 余额已恢复(\\${equity:.2f})，提前解锁')
                     return False
             except:
                 pass  # 余额检查失败，维持黑名单
@@ -260,7 +260,7 @@ def add_to_blacklist(symbol, reason, ttl_days=30):
         'added_at': datetime.now().isoformat(),
     }
     save_blacklist()
-    print('  ⛔ %s 已静默加入观察名单（%s天）原因: %s' % (symbol, ttl_days, reason))
+    _pilot_logger.warning('  ⛔ %s 已静默加入观察名单（%s天）原因: %s' % (symbol, ttl_days, reason))
 
 def _get_volatility_stop(symbol, hold_hours=72):
     """
@@ -596,7 +596,7 @@ def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20,
         try:
             order_result = resp.json()
         except:
-            print(f'  JSON解析失败: status={resp.status_code} text={resp.text[:200]}')
+            _pilot_logger.error(f'  JSON解析失败: status={resp.status_code} text={resp.text[:200]}')
             return {'success': False, 'code': 'parse_error', 'entry_price': 0,
                     'sl': {'success': False, 'error': resp.text[:100]},
                     'tp': {'success': False, 'error': resp.text[:100]}}
@@ -605,7 +605,7 @@ def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20,
         direction_str = '做多' if side == 'buy' else '做空'
 
         if code != '0':
-            print(f'  OKX实盘下单失败: {direction_str} {coin} code={code} msg={order_result.get("msg","")}')
+            _pilot_logger.error(f'  OKX实盘下单失败: {direction_str} {coin} code={code} msg={order_result.get("msg","")}')
             return {'success': False, 'code': code, 'entry_price': 0,
                     'sl': {'success': False, 'error': order_result.get('msg', '')},
                     'tp': {'success': False, 'error': order_result.get('msg', '')}}
@@ -620,17 +620,17 @@ def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20,
             entry_price = _get_position_entry_price(instId)
 
         if entry_price <= 0:
-            print(f'  ⚠️ 无法获取{coin}成交价，跳过SL/TP')
-            print(f'  OKX实盘下单成功: {direction_str} {coin} {size_contracts}张（无保护）')
+            _pilot_logger.warning(f'  ⚠️ 无法获取{coin}成交价，跳过SL/TP')
+            _pilot_logger.info(f'  OKX实盘下单成功: {direction_str} {coin} {size_contracts}张（无保护）')
             # 无保护持仓 → 必须立即平仓
             close_ok = _okx_market_close(instId, side, size_contracts)
             if not close_ok:
-                print(f'  ❌ 平仓失败！请立即手动处理！')
+                _pilot_logger.error(f'  ❌ 平仓失败！请立即手动处理！')
             return {'success': False, 'code': '0', 'entry_price': 0,
                     'sl': {'success': False, 'error': '无法获取成交价'},
                     'tp': {'success': False, 'error': '无法获取成交价'}}
 
-        print(f'  OKX实盘下单成功: {direction_str} {coin} {size_contracts}张 成交价${entry_price:.4f}')
+        _pilot_logger.info(f'  OKX实盘下单成功: {direction_str} {coin} {size_contracts}张 成交价${entry_price:.4f}')
 
         # Step 4: 用实际成交价挂独立的SL/TP条件单
         sl_tp_results = _place_sl_tp_algo(instId, side, size_contracts, entry_price, sl_pct, tp_pct)
@@ -642,13 +642,13 @@ def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20,
         if sl_failed or tp_failed:
             failed = 'SL' if sl_failed else 'TP'
             err = sl_tp_results['sl']['error'] if sl_failed else sl_tp_results['tp']['error']
-            print(f'  🔴 【紧急】{failed}挂单失败({err}) → 立即市价平仓（无保护持仓不可接受）')
+            _pilot_logger.error(f'  🔴 【紧急】{failed}挂单失败({err}) → 立即市价平仓（无保护持仓不可接受）')
             close_result = _okx_market_close(instId, side, size_contracts)
             record_trade_outcome(coin, 0, 'sl_tp_failed_force_close')
             if close_result:
-                print(f'  ✅ 已平仓（无保护持仓）')
+                _pilot_logger.info(f'  ✅ 已平仓（无保护持仓）')
             else:
-                print(f'  ❌ 平仓失败！请立即手动处理！')
+                _pilot_logger.error(f'  ❌ 平仓失败！请立即手动处理！')
             return {'success': False, 'code': '0', 'entry_price': entry_price,
                     'sl': sl_tp_results['sl'],
                     'tp': sl_tp_results['tp'],
@@ -662,7 +662,7 @@ def okx_place_order(coin, side, size_contracts, lev=3, sl_pct=0.05, tp_pct=0.20,
                 'position_closed': False}
 
     except Exception as e:
-        print(f'  OKX下单失败: {e}')
+        _pilot_logger.error(f'  OKX下单失败: {e}')
         return {'success': False, 'code': 'exception', 'entry_price': 0,
                 'sl': {'success': False, 'error': str(e)},
                 'tp': {'success': False, 'error': str(e)}}
@@ -705,7 +705,7 @@ def _okx_market_close(instId, existing_side, size_contracts):
         result = r.json()
         return result.get('code') == '0'
     except Exception as e:
-        print(f'  ⚠️ _okx_market_close异常: {e}')
+        _pilot_logger.warning(f'  ⚠️ _okx_market_close异常: {e}')
         return False
 
 
@@ -750,11 +750,11 @@ def _place_sl_tp_algo(instId, side, sz, entry_price, sl_pct, tp_pct):
         existing = r_chk.json().get('data', [])
         if existing:
             algo_id = existing[0].get('algoId', '?')
-            print(f'    ⏭️ OCO已存在(id:{algo_id[:8]})，跳过挂单')
+            _pilot_logger.info(f'    ⏭️ OCO已存在(id:{algo_id[:8]})，跳过挂单')
             return {'sl': {'success': True, 'algoId': algo_id, 'price': sl_price, 'skipped': True},
                     'tp': {'success': True, 'algoId': algo_id, 'price': tp_price, 'skipped': True}}
     except Exception as e:
-        print(f'    ⚠️ 幂等检查异常({e})，继续挂单')
+        _pilot_logger.warning(f'    ⚠️ 幂等检查异常({e})，继续挂单')
 
     results = {'sl': None, 'tp': None}
     # OCO Bracket：1个订单同时包含SL和TP，触发时互斥
@@ -790,16 +790,16 @@ def _place_sl_tp_algo(instId, side, sz, entry_price, sl_pct, tp_pct):
         result = r.json()
         if result.get('code') == '0':
             algo_id = result['data'][0]['algoId']
-            print(f'    ✅ OCO已挂: SL@${sl_price} + TP@${tp_price} [id:{algo_id[:8]}]')
+            _pilot_logger.info(f'    ✅ OCO已挂: SL@${sl_price} + TP@${tp_price} [id:{algo_id[:8]}]')
             results['sl'] = {'success': True, 'algoId': algo_id, 'price': sl_price, 'error': None}
             results['tp'] = {'success': True, 'algoId': algo_id, 'price': tp_price, 'error': None}
         else:
             err_msg = result.get('msg', '')
-            print(f'    ❌ OCO失败: {err_msg}')
+            _pilot_logger.error(f'    ❌ OCO失败: {err_msg}')
             results['sl'] = {'success': False, 'algoId': None, 'price': sl_price, 'error': err_msg}
             results['tp'] = {'success': False, 'algoId': None, 'price': tp_price, 'error': err_msg}
     except Exception as e:
-        print(f'    ❌ OCO异常: {e}')
+        _pilot_logger.error(f'    ❌ OCO异常: {e}')
         results['sl'] = {'success': False, 'algoId': None, 'price': sl_price, 'error': str(e)}
         results['tp'] = {'success': False, 'algoId': None, 'price': tp_price, 'error': str(e)}
 
@@ -858,9 +858,9 @@ def _set_leverage(instId, lev):
                         headers=h, data=body, timeout=10)
         result = r.json()
         if result.get('code') != '0':
-            print(f'  杠杆设置失败: {result.get("msg","")}')
+            _pilot_logger.error(f'  杠杆设置失败: {result.get("msg","")}')
     except Exception as e:
-        print(f'  杠杆设置异常: {e}')
+        _pilot_logger.error(f'  杠杆设置异常: {e}')
 
 def okx_get_positions():
     """获取当前持仓（OKX实盘）"""
@@ -898,7 +898,7 @@ def okx_get_positions():
         if result.get('code') == '0':
             return {p['instId'].split('-')[0]: p for p in result.get('data', [])}
     except Exception as e:
-        print(f'  获取OKX持仓失败: {e}')
+        _pilot_logger.error(f'  获取OKX持仓失败: {e}')
     return {}
 
 def okx_close_position(coin, side, size_contracts, pos_side='long'):
@@ -957,13 +957,13 @@ def okx_close_position(coin, side, size_contracts, pos_side='long'):
         result = resp.json()
         msg = result.get('msg', '')
         if result.get('code') == '0':
-            print(f'  OKX平仓成功: {coin} {side} {size_contracts}张')
+            _pilot_logger.info(f'  OKX平仓成功: {coin} {side} {size_contracts}张')
         else:
             sMsg = result.get('data', [{}])[0].get('sMsg', msg)
-            print(f'  OKX平仓失败: {sMsg}')
+            _pilot_logger.error(f'  OKX平仓失败: {sMsg}')
         return result
     except Exception as e:
-        print(f'  OKX平仓异常: {e}')
+        _pilot_logger.error(f'  OKX平仓异常: {e}')
         return None
 
 def open_paper_trade(signal, price, margin_consumed=0.0):
@@ -989,7 +989,7 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
     # 这确保多个信号同时开仓时不会超出总余额
     adjusted_balance = max(actual_balance - margin_consumed, 0)
     if adjusted_balance < 1.0:
-        print('  信号作废: %s 可用余额%.2f USDT不足（已消耗保证金%.2f）' % (
+        _pilot_logger.warning('  信号作废: %s 可用余额%.2f USDT不足（已消耗保证金%.2f）' % (
             signal['coin'], adjusted_balance, margin_consumed))
         return None
 
@@ -1006,7 +1006,7 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
             cur_price = bars[-1][4]
             margin_per_contract = (cur_price * ctVal) / 3
             if margin_per_contract > actual_balance * 0.20:
-                print('  ⛔ %s 结构性不可交易（1张需保证金$%.2f > $%.2f的20%%），跳过' % (
+                _pilot_logger.warning('  ⛔ %s 结构性不可交易（1张需保证金$%.2f > $%.2f的20%%），跳过' % (
                     signal['coin'], margin_per_contract, actual_balance * 0.20))
                 return None
     except:
@@ -1017,7 +1017,7 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
     # 张数 = 仓位÷100（OKX每张合约=$100）
     position_usdt = auto_position_sizing(signal['coin'], adjusted_balance)
     if position_usdt is None:
-        print('  信号作废: %s 余额%.2f USDT低于最小交易额' % (signal['coin'], actual_balance))
+        _pilot_logger.warning('  信号作废: %s 余额%.2f USDT低于最小交易额' % (signal['coin'], actual_balance))
         return None  # 静默跳过，不报错
 
     contracts = max(1, int(position_usdt / 100))  # 每张=$100
@@ -1055,8 +1055,7 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
             )
             if is_counter_trend and is_rsi_extreme and is_trending:
                 trend_word = '下跌' if rsi_now < 35 else '上涨'
-                print(f'  ⛔ %s 逆势信号过滤（ADX={adx_now:.0f}>22强趋势中RSI={rsi_now:.0f}{trend_word}，%s做多危险），跳过' % (
-                    signal['coin'], '逆' if rsi_now < 35 else '逆'))
+                _pilot_logger.warning(f'  ⛔ {sig["coin"]} 逆势信号过滤（ADX={adx_now:.0f}>22强趋势中RSI={rsi_now:.0f}{trend_word}，{"逆" if rsi_now < 35 else "逆"}做多危险），跳过')
                 return None
     except:
         pass
@@ -1092,7 +1091,7 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
     if order_success:
         status = 'OPEN'
         entry_price_real = result.get('entry_price', price)
-        print('  ✅ 实盘开仓成功: %s %s %d张 @ $%.4f (SL=$%.4f TP=$%.4f)' % (
+        _pilot_logger.info('  ✅ 实盘开仓成功: %s %s %d张 @ $%.4f (SL=$%.4f TP=$%.4f)' % (
             signal['coin'], signal['direction'], contracts,
             entry_price_real,
             entry_price_real * (1 - sl_pct),
@@ -1108,19 +1107,19 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
             status = 'FAILED'
             failed_type = 'SL' if sl_failed else 'TP'
             err = sl_info.get('error', '') or tp_info.get('error', '')
-            print('  🔴 SL/TP挂单失败(%s: %s) → 已强制平仓 → 交易作废' % (failed_type, err))
-            print('  ❌ 实盘开仓失败: %s' % signal['coin'])
+            _pilot_logger.error('  🔴 SL/TP挂单失败(%s: %s) → 已强制平仓 → 交易作废' % (failed_type, err))
+            _pilot_logger.error('  ❌ 实盘开仓失败: %s' % signal['coin'])
         else:
             # 市价单本身失败
             status = 'FAILED'
             err_msg = result.get('sl', {}).get('error', '') or result.get('tp', {}).get('error', '')
-            print('  ❌ 实盘开仓失败: %s code=%s msg=%s' % (signal['coin'], order_code, err_msg))
+            _pilot_logger.error('  ❌ 实盘开仓失败: %s code=%s msg=%s' % (signal['coin'], order_code, err_msg))
             # 余额不足错误自动加入黑名单静默跳过
             if order_code in ('51008', '51009') or 'insufficient balance' in err_msg.lower():
                 add_to_blacklist(signal['coin'], 'insufficient_balance')
             elif order_code == '50102':
                 add_to_blacklist(signal['coin'], 'timestamp_error', ttl_days=1)
-                print('  ⚠️ 时间戳错误，1天后自动重试')
+                _pilot_logger.warning('  ⚠️ 时间戳错误，1天后自动重试')
 
     trade = {
         'id': len(log) + 1,
@@ -1645,7 +1644,7 @@ def push_feishu(message):
         app_id = os.environ.get('FEISHU_APP_ID', '')
         app_secret = os.environ.get('FEISHU_APP_SECRET', '')
         if not app_id or not app_secret:
-            print('    ⚠️ 飞书APP_ID/APP_SECRET未配置，跳过推送')
+            _pilot_logger.warning('    ⚠️ 飞书APP_ID/APP_SECRET未配置，跳过推送')
             return False
         tr = requests.post('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
                          json={'app_id': app_id, 'app_secret': app_secret}, timeout=10)
@@ -1695,7 +1694,7 @@ def run_full_report():
         bal_data = get_account_balance()
         equity = float(bal_data.get('totalEq', 20)) if bal_data else 20.0
     except Exception as e:
-        print('    [WARN] equity获取失败: %s' % e)
+        _pilot_logger.warning('    [WARN] equity获取失败: %s' % e)
         equity = 20.0
     alloc_result, alloc_data = compute_per_coin_allocation(equity)
     allocation_report = format_allocation_report(alloc_data)
@@ -1721,7 +1720,7 @@ def run_full_report():
             from kronos_heartbeat import check_circuit_breaker, record_trade_outcome
             tripped, reason, _ = check_circuit_breaker()
             if tripped:
-                print('  ⛔ 熔断已触发，禁止开仓: %s' % reason)
+                _pilot_logger.warning('  ⛔ 熔断已触发，禁止开仓: %s' % reason)
                 break
         except Exception:
             pass  # 熔断器模块异常时不阻止交易
@@ -1729,7 +1728,7 @@ def run_full_report():
         # 信号过期检查（5分钟超时）
         signal_age = time.time() - sig.get('signal_time', 0)
         if signal_age >= 300:
-            print('  ⏰ 跳过 %s: 信号已过期(%.0f秒>5分钟)' % (sig['coin'], signal_age))
+            _pilot_logger.warning('  ⏰ 跳过 %s: 信号已过期(%.0f秒>5分钟)' % (sig['coin'], signal_age))
             continue
 
         trade = open_paper_trade(
@@ -1788,11 +1787,11 @@ def run_full_report():
         report = None
     
     if report:
-        print(report)
+        _pilot_logger.info(report)
         pushed = push_feishu(report)
-        print('飞书推送: %s' % ('成功' if pushed else '失败'))
+        _pilot_logger.info('飞书推送: %s' % ('成功' if pushed else '失败'))
     else:
-        print('日报: 无更新（静默）')
+        _pilot_logger.info('日报: 无更新（静默）')
     
     # v1.4: 保存市场情绪数据供 kronos_multi_coin 使用（L1-L5全层）
     try:
@@ -1835,7 +1834,7 @@ def run_full_report():
             sentiment['news_alert'] = news_alerts[:5]  # 最多5条
             if news_alerts:
                 parts = ['%s@%s' % (a['coin'], a['source']) for a in news_alerts[:3]]
-                print('  📰 新闻事件: %s' % ' | '.join(parts))
+                _pilot_logger.info('  📰 新闻事件: %s' % ' | '.join(parts))
         except Exception:
             sentiment['news_alert'] = []
 
@@ -1847,9 +1846,9 @@ def run_full_report():
         }))
         if l1_signals:
             joined = ' | '.join(l1_signals[:3])
-            print(f'  L1资金费率: {joined}')
+            _pilot_logger.info(f'  L1资金费率: {joined}')
     except Exception as e:
-        print(f'[WARN] 市场情绪缓存失败: {e}')
+        _pilot_logger.warning(f'[WARN] 市场情绪缓存失败: {e}')
     
     return signals, prices, {}
 
@@ -2211,7 +2210,7 @@ def compute_per_coin_allocation(equity=None):
                 # 最小可行：保证金不超过账户的20%
                 if margin_per_contract > equity * 0.20:
                     STRUCTURAL_EXCLUDE.add(coin)
-                    print(f'  ⛔ {coin} 结构性排除（1张需保证金${margin_per_contract:.2f} > ${equity*0.20:.2f}的20%）')
+                    _pilot_logger.warning(f'  ⛔ {coin} 结构性排除（1张需保证金${margin_per_contract:.2f} > ${equity*0.20:.2f}的20%）')
             except:
                 pass
     except:
@@ -2361,7 +2360,7 @@ def run_ic_collection():
     prices = get_okx_prices()
     signals, _ = generate_signals()
     save_ic_snapshot(signals)
-    print('IC快照已保存 (%d个币种)' % len(signals))
+    _pilot_logger.info('IC快照已保存 (%d个币种)' % len(signals))
 
 
 def kronos_confirm():
@@ -2390,7 +2389,7 @@ def show_status():
     """查看纸质交易胜率统计"""
     log = load_paper_log()
     if not log:
-        print('📊 无纸质交易记录')
+        _pilot_logger.info('📊 无纸质交易记录')
         return
     total = len(log)
     wins = [x for x in log if x.get('pnl', 0) > 0]
@@ -2399,28 +2398,28 @@ def show_status():
     total_pnl = sum(x.get('pnl', 0) for x in log)
     avg_win = sum(x.get('pnl', 0) for x in wins) / len(wins) if wins else 0
     avg_loss = sum(x.get('pnl', 0) for x in losses) / len(losses) if losses else 0
-    print(f'📊 纸质交易统计（共{total}笔）')
-    print(f'  胜率: {len(wins)}/{total} = {win_rate:.1f}%')
-    print(f'  总损益: ${total_pnl:.2f}')
-    if wins:   print(f'  平均盈利: ${avg_win:.2f} ({len(wins)}笔)')
-    if losses: print(f'  平均亏损: ${avg_loss:.2f} ({len(losses)}笔)')
-    print()
+    _pilot_logger.info(f'📊 纸质交易统计（共{total}笔）')
+    _pilot_logger.info(f'  胜率: {len(wins)}/{total} = {win_rate:.1f}%')
+    _pilot_logger.info(f'  总损益: ${total_pnl:.2f}')
+    if wins:   _pilot_logger.info(f'  平均盈利: ${avg_win:.2f} ({len(wins)}笔)')
+    if losses: _pilot_logger.info(f'  平均亏损: ${avg_loss:.2f} ({len(losses)}笔)')
+    _pilot_logger.info('')
     for x in log[-10:]:
         pnl = x.get('pnl', 0)
         mark = '✅' if pnl > 0 else '❌'
-        print(f"  {mark} {x.get('open_time', x.get('time',''))[:19]} {x.get('coin','')} {x.get('direction', x.get('side',''))} ${pnl:.2f}")
+        _pilot_logger.info(f"  {mark} {x.get('open_time', x.get('time',''))[:19]} {x.get('coin','')} {x.get('direction', x.get('side',''))} ${pnl:.2f}")
 
 
 def show_log(n=20):
     """查看最近日志"""
     log_file = _log_dir / 'kronos_pilot.log'
     if not log_file.exists():
-        print(f'📄 无日志文件: {log_file}')
+        _pilot_logger.info(f'📄 无日志文件: {log_file}')
         return
     lines = log_file.read_text(encoding='utf-8').strip().split('\n')
-    print(f'📄 最近{min(n, len(lines))}行日志:')
+    _pilot_logger.info(f'📄 最近{min(n, len(lines))}行日志:')
     for line in lines[-n:]:
-        print(line)
+        _pilot_logger.info(line)
 
 
 if __name__ == '__main__':
@@ -2442,53 +2441,53 @@ if __name__ == '__main__':
         if price:
             close_position(coin, price)
         else:
-            print('无法获取 %s 当前价格' % coin)
+            _pilot_logger.warning('无法获取 %s 当前价格' % coin)
     elif mode == '--check-sltp':
         prices = get_okx_prices()
         closed = check_stop_take_profit(prices)
         open_coins = {t['coin'] for t in load_paper_log() if t['status'] == 'OPEN'}
         if closed:
             for coin, price, reason, pnl in closed:
-                print('平仓: %s %s @ $%.4f = %+.1f%%' % (coin, reason, price, pnl))
+                _pilot_logger.info('平仓: %s %s @ $%.4f = %+.1f%%' % (coin, reason, price, pnl))
             msg = 'Kronos SL/TP触发:\n' + '\n'.join(['%s: %s @ $%.4f = %+.1f%%' % (c, r, p, pn) for c, p, r, pn in closed])
             push_feishu(msg)
         else:
-            print('SL/TP检测: 无触发（静默）')
+            _pilot_logger.info('SL/TP检测: 无触发（静默）')
     elif mode == '--collect-ic':
         run_ic_collection()
         # 同时计算因子权重
         weights, err = compute_ic_weights()
         if err:
-            print('权重计算: %s' % err)
+            _pilot_logger.warning('权重计算: %s' % err)
         else:
-            print('权重计算: %s' % format_ic_weights_report())
+            _pilot_logger.info('权重计算: %s' % format_ic_weights_report())
     elif mode == '--analyze':
         # 计算权重 → 然后分析衰减
         weights, err = compute_ic_weights()
         if weights:
-            print('━━━ IC因子权重 ━━━')
-            print(format_ic_weights_report())
-            print()
+            _pilot_logger.info('━━━ IC因子权重 ━━━')
+            _pilot_logger.info(format_ic_weights_report())
+            _pilot_logger.info('')
         else:
-            print('权重: %s' % (err or '数据不足'))
+            _pilot_logger.warning('权重: %s' % (err or '数据不足'))
         result, text = analyze_factor_weights()
-        print(text)
+        _pilot_logger.info(text)
         if result:
-            print('\n提案已自动应用（p<0.05, |变化|>20%%）')
+            _pilot_logger.info('\n提案已自动应用（p<0.05, |变化|>20%%）')
         else:
-            print('\n无待处理提案')
+            _pilot_logger.info('\n无待处理提案')
     elif mode == '--analyze-weights':
         weights, err = compute_ic_weights()
         if weights:
-            print('━━━ IC因子权重 ━━━')
-            print(format_ic_weights_report())
+            _pilot_logger.info('━━━ IC因子权重 ━━━')
+            _pilot_logger.info(format_ic_weights_report())
         else:
-            print('权重: %s' % (err or '数据不足'))
+            _pilot_logger.warning('权重: %s' % (err or '数据不足'))
     elif mode == '--confirm':
         result = kronos_confirm()
-        print(result)
+        _pilot_logger.info(result)
     else:
-        print('[%s] Kronos信号' % datetime.now().strftime('%H:%M:%S'))
+        _pilot_logger.info('[%s] Kronos信号' % datetime.now().strftime('%H:%M:%S'))
         signals, prices = generate_signals()
         for sig in signals:
-            print('  %s' % sig['signal_text'])
+            _pilot_logger.info('  %s' % sig['signal_text'])
