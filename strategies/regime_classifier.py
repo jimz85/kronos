@@ -322,6 +322,89 @@ class RegimeClassifier:
         }
         return signals.get(regime, signals[RegimeType.UNKNOWN])
     
+    def get_dynamic_strategy_params(self, regime: RegimeType) -> Dict:
+        """
+        Get dynamic strategy weights based on market regime.
+        
+        Returns different factor weight distributions depending on whether
+        we're in a BULL, BEAR, or SIDEWAYS market.
+        
+        Args:
+            regime: The current market regime type
+            
+        Returns:
+            Dict with factor weights for signal generation:
+                - momentum_weight: Weight for momentum indicators
+                - trend_weight: Weight for trend-following indicators  
+                - mean_reversion_weight: Weight for mean reversion indicators
+                - volatility_weight: Weight for volatility-based signals
+                - volume_weight: Weight for volume confirmation
+        """
+        # BULL market: Favor trend-following and momentum
+        if regime == RegimeType.BULL_TREND:
+            return {
+                "momentum_weight": 0.35,
+                "trend_weight": 0.40,
+                "mean_reversion_weight": 0.10,
+                "volatility_weight": 0.05,
+                "volume_weight": 0.10,
+                "description": "BULL: Trend-following + momentum favored"
+            }
+        
+        # BEAR market: Favor mean reversion and reduced exposure
+        elif regime == RegimeType.BEAR_TREND:
+            return {
+                "momentum_weight": 0.25,
+                "trend_weight": 0.15,
+                "mean_reversion_weight": 0.40,
+                "volatility_weight": 0.10,
+                "volume_weight": 0.10,
+                "description": "BEAR: Mean reversion + reduced exposure"
+            }
+        
+        # SIDEWAYS/RANGE: Favor mean reversion, reduced trend weight
+        elif regime == RegimeType.RANGE_BOUND:
+            return {
+                "momentum_weight": 0.10,
+                "trend_weight": 0.15,
+                "mean_reversion_weight": 0.45,
+                "volatility_weight": 0.15,
+                "volume_weight": 0.15,
+                "description": "SIDEWAYS: Mean reversion range trading"
+            }
+        
+        # HIGH VOLATILITY: Reduce all weights, favor volatility protection
+        elif regime == RegimeType.HIGH_VOLATILITY:
+            return {
+                "momentum_weight": 0.20,
+                "trend_weight": 0.20,
+                "mean_reversion_weight": 0.20,
+                "volatility_weight": 0.30,
+                "volume_weight": 0.10,
+                "description": "HIGH VOL: Volatility protection priority"
+            }
+        
+        # LOW VOLATILITY: Build positions gradually
+        elif regime == RegimeType.LOW_VOLATILITY:
+            return {
+                "momentum_weight": 0.20,
+                "trend_weight": 0.30,
+                "mean_reversion_weight": 0.20,
+                "volatility_weight": 0.10,
+                "volume_weight": 0.20,
+                "description": "LOW VOL: Accumulation mode"
+            }
+        
+        # UNKNOWN: Conservative weights
+        return {
+            "momentum_weight": 0.20,
+            "trend_weight": 0.20,
+            "mean_reversion_weight": 0.20,
+            "volatility_weight": 0.20,
+            "volume_weight": 0.20,
+            "description": "UNKNOWN: Balanced conservative"
+        }
+    
     def format_analysis(self, regime: RegimeType, confidence: float, 
                        metrics: RegimeMetrics) -> str:
         """Format regime analysis as a readable string."""

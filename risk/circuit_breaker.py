@@ -6,7 +6,7 @@ Implements a sliding window circuit breaker pattern.
 """
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Tuple
 from collections import deque
 import time
 import logging
@@ -165,6 +165,62 @@ class CircuitBreaker:
 class CircuitOpenError(Exception):
     """Raised when circuit breaker is open and request is blocked."""
     pass
+
+
+# =============================================================================
+# PORTFOLIO RISK INTEGRATION
+# =============================================================================
+
+try:
+    from core.portfolio_risk import (
+        CorrelationMatrix,
+        check_portfolio_risk,
+        CorrelationMatrix as CorrMatrix
+    )
+    _HAS_PORTFOLIO_RISK = True
+except ImportError:
+    _HAS_PORTFOLIO_RISK = False
+    CorrMatrix = None
+
+
+def check_portfolio_correlation_risk(
+    proposed_coin: str,
+    proposed_direction: str,
+    existing_positions: Dict[str, dict],
+    correlation_matrix: Optional['CorrelationMatrix'] = None,
+    btc_df: Optional[object] = None
+) -> Tuple[bool, str]:
+    """
+    Check portfolio correlation risk before opening a new position.
+    
+    This function integrates portfolio risk checking into the circuit breaker
+    system. It prevents opening positions that would create dangerous
+    correlated exposures.
+    
+    Args:
+        proposed_coin: Coin symbol being considered
+        proposed_direction: 'long' or 'short'
+        existing_positions: Dict of {symbol: {'direction': str, 'size': float}}
+        correlation_matrix: CorrelationMatrix instance (creates new if None)
+        btc_df: Optional BTC price data for beta calculation
+        
+    Returns:
+        Tuple of (is_allowed: bool, reason: str)
+    """
+    if not _HAS_PORTFOLIO_RISK:
+        logger.warning("portfolio_risk module not available, skipping correlation check")
+        return True, "Portfolio risk module not available"
+    
+    if correlation_matrix is None:
+        correlation_matrix = CorrMatrix()
+    
+    return check_portfolio_risk(
+        proposed_coin=proposed_coin,
+        proposed_direction=proposed_direction,
+        existing_positions=existing_positions,
+        correlation_matrix=correlation_matrix,
+        btc_df=btc_df
+    )
 
 
 # =============================================================================
