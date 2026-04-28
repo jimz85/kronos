@@ -956,6 +956,7 @@ def _place_sl_tp_algo(
         'side': close_side,
         'ordType': 'oco',       # OCO = One-Cancels-Other，SL+TP互斥 ✅
         'sz': str(int(sz)),
+        'reduceOnly': True,     # P0 Fix: 确保只平仓不开新仓
         'posSide': 'long' if side == 'buy' else 'short',
         'slTriggerPx': str(sl_price),
         'slOrdPx': '-1',        # 市价触发
@@ -2002,8 +2003,15 @@ def run_full_report():
 
     for sig in signals_sorted:
         if len(new_trades) >= 3 - len(open_coins):
+            _pilot_logger.warning('  ⛔ 批次已满（%d/%d个持仓），跳过 %s 等候空位' % (
+                len(open_coins), 3, ', '.join([s['coin'] for s in signals_sorted if s['coin'] not in open_coins])))
             break
         if sig['coin'] in open_coins or is_blacklisted(sig['coin']) or sig['confidence'] < 50:
+            reason = []
+            if sig['coin'] in open_coins: reason.append('已有仓位')
+            if is_blacklisted(sig['coin']): reason.append('黑名单')
+            if sig['confidence'] < 50: reason.append('置信度不足')
+            _pilot_logger.info('  ⏭️ 跳过 %s: %s' % (sig['coin'], ', '.join(reason)))
             continue
 
         # 熔断器检查：连续3次亏损后禁止开仓

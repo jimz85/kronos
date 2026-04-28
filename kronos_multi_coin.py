@@ -31,6 +31,15 @@ except ImportError:
     HAS_VOTING_SYSTEM = False
     VOTING_TIMEOUT = 0
 
+# ========== LLM缓存层导入 ==========
+# Redis缓存层用于减少重复LLM API调用
+try:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from core.llm_cache import get_llm_cache, cache_response, get_cached_response
+    HAS_LLM_CACHE = True
+except ImportError:
+    HAS_LLM_CACHE = False
+
 # ========== 战略上下文导入(MiniMax小时层 → gemma4分钟层)==========
 try:
     sys.path.insert(0, str(Path(__file__).parent))
@@ -514,7 +523,7 @@ def place_oco(instId, side, sz, slPrice, tpPrice):
     close_side = 'sell' if side == 'long' else 'buy'
     body = json.dumps({
         'instId': instId, 'tdMode': 'isolated', 'side': close_side,
-        'ordType': 'oco', 'sz': str(int(sz)), 'reduceOnly': 'true', 'posSide': side,
+        'ordType': 'oco', 'sz': str(int(sz)), 'reduceOnly': True, 'posSide': side,
         'slTriggerPx': str(slPrice), 'slOrdPx': '-1',
         'tpTriggerPx': str(tpPrice), 'tpOrdPx': '-1',
     })
@@ -2893,11 +2902,25 @@ def _load_env():
                 os.environ[k.strip()] = v.strip()
 
 def _call_ollama(prompt: str, model: str = 'gemma4-2b-heretic:latest', timeout: int = 45) -> str:
-    """调用Ollama gemma4(带重试+连接池)
+    """调用Ollama gemma4(带重试+连接池+缓存)
 
     gemma4-heretic是thinking模型，复杂prompt下content为空、thinking充满最终答案，
     所以增加num_predict到1536，并从thinking字段提取最终决策。
+    
+    缓存策略:
+    - 使用Redis缓存相同prompt的响应
+    - TTL: 10分钟（本地Ollama相对稳定）
     """
+    # ========== Step 0: 检查缓存 ==========
+    if HAS_LLM_CACHE:
+        try:
+            cached = get_cached_response(prompt, provider="ollama")
+            if cached:
+                print(f"  🎯 ollama缓存命中 (节省API调用)")
+                return cached
+        except Exception as e:
+            print(f"  ⚠️ 缓存查询失败: {e}")
+    
     session = _get_ollama_session()
     data = {
         # gemma3:1b为主（快速+格式遵循），gemma4-heretic备用（质量更高但需更多token）
@@ -2955,6 +2978,12 @@ def _call_ollama(prompt: str, model: str = 'gemma4-2b-heretic:latest', timeout: 
                     msg_content = thinking.strip()
 
             if msg_content:
+                # ========== Step X: 缓存结果 ==========
+                if HAS_LLM_CACHE:
+                    try:
+                        cache_response(prompt, msg_content, provider="ollama", ttl=600)
+                    except Exception as e:
+                        print(f"  ⚠️ 缓存存储失败: {e}")
                 return msg_content
         except Exception as e:
             if attempt == 2:

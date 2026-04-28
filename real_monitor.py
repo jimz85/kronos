@@ -993,7 +993,7 @@ def place_sl_tp(coin, side, size, entry_price, sl_pct, tp_pct):
         'side': close_side,
         'ordType': 'oco',       # OCO = One-Cancels-Other，SL+TP互斥
         'sz': str(int(size)),
-        'reduceOnly': 'true',
+        'reduceOnly': True,
         'posSide': 'long',
         'slTriggerPx': str(sl_price),
         'slOrdPx': '-1',        # 市价触发
@@ -1298,28 +1298,41 @@ def check_account_health(real_pos, balance_info=None):
 def get_account_balance():
     """获取账户余额和保证金信息
 
-    P0 Fix: 遍历details找到ccy==USDT的记录，不假设details[0]是USDT
+    P0 Bug Fix (2026-04-27): 使用 totalEq（账户总权益）而不是 cc=USDT 过滤后的 eq。
+    cc=USDT 过滤只返回 USDT 币种的权益，丢失了 ADA 等其他币种的价值。
+    OKX 的 totalEq 才是账户总权益（包含所有币种）。
     """
     try:
-        result = _req('GET', '/api/v5/account/balance?ccy=USDT')
+        # 不使用 ccy=USDT 过滤，直接获取整个账户信息
+        result = _req('GET', '/api/v5/account/balance')
         if result.get('code') != '0':
             return {'totalEq': 0, 'availEq': 0, 'frozenBal': 0, 'upl': 0}
 
-        # P0 Fix: 遍历details找USDT，不假设第一个是USDT
-        details = None
-        for d in result.get('data', [{}])[0].get('details', []):
+        data = result['data'][0]
+        total_eq = float(data.get('totalEq', 0))
+
+        # 获取 USDT 的 details 用于可用保证金等
+        usdt_details = None
+        for d in data.get('details', []):
             if d.get('ccy') == 'USDT':
-                details = d
+                usdt_details = d
                 break
-        if details is None:
-            return {'totalEq': 0, 'availEq': 0, 'frozenBal': 0, 'upl': 0}
+
+        if usdt_details is None:
+            # 如果没有 USDT details，至少返回 totalEq
+            return {
+                'totalEq': total_eq,
+                'availEq': 0,
+                'frozenBal': 0,
+                'upl': 0,
+            }
 
         return {
-            'totalEq': float(details.get('eq', 0)),
-            'availEq': float(details.get('availEq', 0)),
-            'frozenBal': float(details.get('frozenBal', 0)),
-            'upl': float(details.get('upl', 0)),
-            'uplRatio': details.get('uplRatio', ''),
+            'totalEq': total_eq,  # 使用账户级别的 totalEq，不是 cc=USDT 的 eq
+            'availEq': float(usdt_details.get('availEq', 0)),
+            'frozenBal': float(usdt_details.get('frozenBal', 0)),
+            'upl': float(usdt_details.get('upl', 0)),
+            'uplRatio': usdt_details.get('uplRatio', ''),
         }
     except:
         return {'totalEq': 0, 'availEq': 0, 'frozenBal': 0, 'upl': 0}
