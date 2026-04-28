@@ -1208,12 +1208,14 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
 
     # 【新】结构性门槛检查：币价太贵则跳过
     # 防止账户太小（<$50）时误开BTC/ETH/SOL等高价值币
-    STRUCTURAL_CONTRACT_VAL = {
+    # OKX合约乘数（ctVal = 每个合约的币数量）
+    OKX_CONTRACT_VAL = {
         'BTC': 0.01, 'ETH': 0.1, 'SOL': 1, 'AVAX': 1,
         'ADA': 100, 'DOT': 1, 'DOGE': 1000,
+        'XRP': 1, 'BNB': 1, 'LINK': 1, 'MATIC': 1,
     }
     try:
-        ctVal = STRUCTURAL_CONTRACT_VAL.get(signal['coin'], 1)
+        ctVal = OKX_CONTRACT_VAL.get(signal['coin'], 1)
         bars = c.fetch_ohlcv('%s-USDT' % signal['coin'], '1h', limit=5)
         if bars:
             cur_price = bars[-1][4]
@@ -1405,7 +1407,8 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
         'coin': signal['coin'],
         'direction': signal['direction'],
         'entry_price': result.get('entry_price', price) if order_success else price,  # 真实成交价
-        'size_usd': round(position_usdt, 2),  # 真实仓位金额（美元）
+        # ✅ P2 Fix: size_usd = 合约张数 × 合约乘数 × 成交价（真实USD面值）
+        'size_usd': round(contracts * ctVal * (result.get('entry_price', price) if order_success else price), 2),
         'contracts': contracts,
         'confidence': signal['confidence'],
         'best_factor': signal['best_factor'],   # 触发决策的因子
