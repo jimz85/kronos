@@ -1104,6 +1104,9 @@ def sync_paper_log(real_pos, paper_path=None):
             # 已存在：确保状态是OPEN
             for t in paper:
                 if t['coin'] == coin and t.get('status') != 'OPEN':
+                    # Don't re-open if it was closed by OKX_sync_no_position (ghost)
+                    if t.get('close_reason') == 'OKX_sync_no_position':
+                        continue  # Skip - this was a confirmed ghost
                     t['status'] = 'OPEN'
                     t['open_time'] = datetime.now().isoformat()  # 重置开仓时间
                     updated.append(coin + '(状态更新)')
