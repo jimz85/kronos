@@ -180,7 +180,7 @@ def load_trades() -> list:
     try:
         pos_resp = _req_okx('GET', '/api/v5/account/positions')
     except Exception as e:
-        logger.warning(f"[journal] OKX positions API failed: {e}")
+        print(f"[journal] OKX positions API failed: {e}", flush=True)
         pos_resp = {}
     if pos_resp.get('code') == '0':
         for p in pos_resp.get('data', []):
@@ -247,9 +247,17 @@ def load_trades() -> list:
     
     for coin in coins:
         # v1.4: 先计算该币的 FIFO PnL（所有fills聚合），再分配给各笔成交
-        coin_pnl = get_pnl_from_fills(coin) or 0.0
+        try:
+            coin_pnl = get_pnl_from_fills(coin) or 0.0
+        except Exception as e:
+            print(f"[journal] get_pnl_from_fills failed for {coin}: {e}", flush=True)
+            coin_pnl = 0.0
         inst_id = f'{coin}-USDT-SWAP'
-        resp = _req_okx('GET', f'/api/v5/trade/fills?instId={inst_id}&after={after_ts}&limit=100')
+        try:
+            resp = _req_okx('GET', f'/api/v5/trade/fills?instId={inst_id}&after={after_ts}&limit=100')
+        except Exception as e:
+            print(f"[journal] OKX fills API failed for {coin}: {e}", flush=True)
+            continue
         if resp.get('code') != '0':
             continue
         
@@ -343,6 +351,7 @@ def _sync_open_entries_with_okx(journal: dict):
     2. 从OKX API获取所有当前持仓
     3. 对每个OPEN条目，检查OKX是否还有对应持仓（coin+direction匹配）
     4. 如果OKX无持仓 → 标记为CLOSED，close_reason=OKX_sync_no_position
+       同时更新paper_trades.json保持两边一致（Bug Fix: 之前只更新journal不更新paper_trades）
     """
     from collections import defaultdict
     import requests as _requests
@@ -353,7 +362,11 @@ def _sync_open_entries_with_okx(journal: dict):
     
     # 构建OKX当前持仓的快速查找表
     okx_pos = defaultdict(dict)  # okx_pos[coin][direction] = {upl, avgPx, pos}
-    pos_resp = _req_okx('GET', '/api/v5/account/positions')
+    try:
+        pos_resp = _req_okx('GET', '/api/v5/account/positions')
+    except Exception as e:
+        print(f"[kronos_journal] OKX持仓查询失败: {e}")
+        return
     if pos_resp.get('code') != '0':
         print(f"[kronos_journal] OKX持仓查询失败: {pos_resp.get('msg', pos_resp)}")
         return
@@ -373,7 +386,15 @@ def _sync_open_entries_with_okx(journal: dict):
             'pos': pos_amt,
         }
     
+    # ── Bug Fix: 同时加载paper_trades.json用于同步更新 ─────────────────────
+    paper_trades = []
+    try:
+        paper_trades = json.loads(PAPER_TRADES.read_text())
+    except Exception:
+        pass  # 无paper_trades文件时跳过
+
     closed_count = 0
+    closed_trade_ids = []  # 记录已关闭的trade_id，用于同步paper_trades
     for e in journal.get('entries', []):
         if e.get('outcome') != 'OPEN':
             continue
@@ -383,15 +404,38 @@ def _sync_open_entries_with_okx(journal: dict):
         
         if coin not in okx_pos or direction not in okx_pos[coin]:
             # OKX没有这个持仓了 → 幽灵仓位，标记关闭
+            now_iso = datetime.now(TZ).isoformat()
             e['outcome'] = 'CLOSED'
             e['status'] = 'CLOSED'
             e['close_reason'] = 'OKX_sync_no_position'
-            e['close_time'] = datetime.now(TZ).isoformat()
+            e['close_time'] = now_iso
             # pnl必须清零：OKX_sync_no_position意味着我们无法获取真实已实现盈亏，
             # 旧的浮动盈亏（floating UPL）对已平仓毫无意义，不能混入统计。
             e['pnl'] = 0.0
             closed_count += 1
+            closed_trade_ids.append(trade_id)
             print(f"[kronos_journal] 幽灵仓位关闭: {trade_id} (OKX无{coin}_{direction}持仓)")
+
+            # ── Bug Fix: 同步更新paper_trades.json ──────────────────────────
+            # 匹配逻辑：用trade_id匹配paper_trades中的id字段
+            for pt in paper_trades:
+                if pt.get('id') == trade_id and pt.get('status') == 'OPEN':
+                    pt['status'] = 'CLOSED'
+                    pt['close_reason'] = 'OKX_sync_no_position'
+                    pt['close_time'] = now_iso
+                    pt['pnl'] = 0.0
+                    print(f"[kronos_journal] 纸仓同步关闭: {trade_id}")
+                    break
+    
+    # 保存更新后的paper_trades.json
+    if closed_count > 0 and paper_trades:
+        try:
+            PAPER_TRADES.parent.mkdir(parents=True, exist_ok=True)
+            with open(PAPER_TRADES, 'w') as f:
+                json.dump(paper_trades, f, indent=2, ensure_ascii=False)
+            print(f"[kronos_journal] paper_trades.json已同步更新（{closed_count}条）")
+        except Exception as e:
+            print(f"[kronos_journal] paper_trades.json写入失败: {e}")
     
     if closed_count > 0:
         print(f"[kronos_journal] 共关闭{closed_count}个幽灵仓位")
