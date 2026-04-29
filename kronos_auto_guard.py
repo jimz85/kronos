@@ -33,7 +33,7 @@ from real_monitor import (
     _req, get_position_multiplier
 )
 from kronos_heartbeat import (
-    load_circuit_state, check_circuit_breaker
+    load_circuit_state, check_circuit_breaker, sync_circuit_from_positions
 )
 
 # ============ 配置 ============
@@ -487,6 +487,9 @@ def execute_actions(actions, positions):
 def guard_cycle():
     logger.info(f"\n[{datetime.now().strftime('%H:%M:%S')}] === Kronos自动守护 ===")
 
+    # 0. 先同步真实持仓盈亏到熔断器（解决幽灵仓位导致的假熔断）
+    sync_circuit_from_positions()
+
     # 1. 检查熔断状态
     circuit_tripped, circuit_reason, circuit_state = check_circuit_breaker()
 
@@ -651,8 +654,6 @@ if __name__ == '__main__':
         lock.acquire()
         result = guard_cycle()
         logger.info(f"\n结果: {json.dumps(result, ensure_ascii=False, indent=2)}")
-        
-        # 执行了紧急平仓 → 写cooldown，防止kronos_multi_coin立即重新开仓
         if result and result.get('executed'):
             try:
                 with open(COOLDOWN_FILE, 'w') as f:

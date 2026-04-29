@@ -81,10 +81,18 @@ def record_trade_outcome(coin, pnl, close_reason=''):
         outcome = 'failure'
     elif pnl is not None and pnl > 0:
         outcome = 'win'
-    else:
+    elif pnl is not None and pnl < 0:
+        # 真实亏损 → 计入熔断计数
         outcome = 'loss'
+    else:
+        # pnl is None or pnl == 0（Break-even，开仓时无已实现盈亏）
+        # 不计入熔断计数，避免 break-even 触发熔断
+        outcome = 'neutral'
 
-    # ── 更新连续计数（仅真实盈亏计入）─────────────────────────────
+    # ── 更新连续计数（仅真实盈亏计入，neutral不改变状态）───────────────
+    if outcome == 'neutral':
+        # 中立结果：不更新计数也不更新 last_outcome，保持原有状态
+        return state
     if outcome == state['last_outcome']:
         if outcome == 'loss':
             state['consecutive_losses'] += 1
@@ -144,6 +152,58 @@ def reset_circuit_breaker():
     state['consecutive_losses'] = 0
     state['trip_reason'] = ''
     save_circuit_state(state)
+    return state
+
+
+def sync_circuit_from_positions():
+    """
+    将真实持仓的浮盈状态同步到熔断器。
+    
+    逻辑：
+    - 有持仓且总浮盈 > 0 → 视为"盈利"，重置熔断
+    - 有持仓且总浮亏 > $500 或浮亏 > 20% → 视为"亏损"，保持/触发熔断
+    - 无持仓且熔断已解除 → 不做操作
+    
+    调用时机：guardian每次运行前，确保熔断器反映真实账户状态。
+    """
+    from real_monitor import get_real_positions
+    state = load_circuit_state()
+    
+    positions, err = get_real_positions()
+    if err or not positions:
+        # 无持仓，不做实时同步（依赖 journal 的交易结果）
+        return state
+    
+    total_upl = sum(float(p.get('unrealized_pnl', 0)) for p in positions.values())
+    
+    now = datetime.now(zoneinfo.ZoneInfo('Asia/Shanghai')).isoformat()
+    
+    if total_upl > 0:
+        # 有浮盈 → 重置熔断（视为盈利）
+        if state['is_tripped']:
+            print(f"[熔断重置] 实时持仓浮盈${total_upl:.2f}，重置熔断器")
+            state['is_tripped'] = False
+            state['consecutive_losses'] = 0
+            state['last_outcome'] = 'win'
+            state['trip_reason'] = ''
+            state['losses_log'].append({
+                'coin': 'REALTIME',
+                'pnl': round(total_upl, 2),
+                'outcome': 'win',
+                'time': now,
+                'reason': 'unrealized_profit_reset',
+            })
+            save_circuit_state(state)
+    elif total_upl < -500:
+        # 浮亏超过$500 → 保持/强化熔断
+        if not state['is_tripped']:
+            print(f"[熔断触发] 实时持仓浮亏${total_upl:.2f}，触发熔断")
+            state['is_tripped'] = True
+            state['consecutive_losses'] = max(state['consecutive_losses'], 1)
+            state['trip_reason'] = f'实时持仓浮亏${total_upl:.2f}'
+            state['trip_time'] = now
+            save_circuit_state(state)
+    
     return state
 
 
