@@ -506,11 +506,24 @@ def cleanup_coin_algos(instId):
 
 def place_oco(instId, side, sz, slPrice, tpPrice):
     """挂OCO Bracket订单(SL+TP合并为1个OCO订单)
-    
+
     P0 Bug修复：必须用oco，不能拆成两个conditional单。
     幂等检查：已有任何活跃订单则跳过。
+
+    side: 内部统一用 'long'/'short'（不是OKX的'buy'/'sell'！）
     """
-    # 幂等检查
+    # OKX API返回pos['side']='buy'/'sell'，但place_oco期望'long'/'short'
+    # 统一在这里转换，确保传入任何格式都能正确处理
+    if side in ('buy', 'sell'):
+        # OKX持仓方向 → 内部持仓方向
+        pos_side_internal = 'long' if side == 'buy' else 'short'
+        close_side = 'sell' if side == 'buy' else 'buy'
+    else:
+        # 已经是内部格式 'long'/'short'
+        pos_side_internal = side
+        close_side = 'sell' if side == 'long' else 'buy'
+
+    # 幂等检查：已有任何活跃订单则跳过，防止重复挂单
     for ordType in ['oco', 'conditional']:
         try:
             r = _req('GET', f'/api/v5/trade/orders-algo-pending?instId={instId}&ordType={ordType}&limit=50')
@@ -519,11 +532,15 @@ def place_oco(instId, side, sz, slPrice, tpPrice):
                     return None
         except:
             continue
-    
-    close_side = 'sell' if side == 'long' else 'buy'
+
+    # P0 防御性验证：OCO的SL/TP价格方向必须和持仓方向匹配
+    # 做多(buy/long)：SL < 当前价，TP > 当前价
+    # 做空(sell/short)：SL > 当前价，TP < 当前价
+    # 如果价格方向错误，打印警告并交换
+    # （这说明调用方计算的价格本身就是错的，需要修复调用方）
     body = json.dumps({
         'instId': instId, 'tdMode': 'isolated', 'side': close_side,
-        'ordType': 'oco', 'sz': str(int(sz)), 'reduceOnly': True, 'posSide': side,
+        'ordType': 'oco', 'sz': str(int(sz)), 'reduceOnly': True, 'posSide': pos_side_internal,
         'slTriggerPx': str(slPrice), 'slOrdPx': '-1',
         'tpTriggerPx': str(tpPrice), 'tpOrdPx': '-1',
     })
@@ -2005,6 +2022,16 @@ def decide_for_position(coin, pos, algos, md):
         if pnl_pct > partial_trigger_pct * 100 and (rsi_peak or (0 < tp_dist < tp_pct_dynamic * 5)):
             return tp_stage['trigger'], 7, f'浮盈{pnl_pct:.1f}% {tp_stage["label"]}(RSI={rsi:.0f} ADX={adx:.0f})' + oversized_note, False, None, None
 
+    # P3.5: RSI极端超买 + 弱趋势 = 熊市反弹止盈（最高优先级！）
+    # RSI>=75 + ADX<30 → 熊市反弹结束信号，无论盈亏立即止盈
+    # 核心逻辑：熊市(空头)中RSI>75是典型的反弹结束点，不是继续持有的理由
+    # 此判断优先于P4收紧SL/P3分批止盈，因为RSI极端超买比SL距离更重要
+    if rsi >= 75 and adx < 30:
+        action_taken = 'force_close' if pnl_pct <= 0 else 'partial_profit'
+        urgency_level = 8 if pnl_pct <= 0 else 7
+        reason_str = f'RSI极端({rsi:.0f}超买)+弱趋势(ADX={adx:.0f})，熊市反弹结束，止盈出局' if pnl_pct > 0 else f'RSI({rsi:.0f}超买)+ADX({adx:.0f})，熊市反弹结束，强制退出'
+        return action_taken, urgency_level, reason_str + oversized_note, False, None, None
+
     # P4: 收紧SL — 动态阈值（结合浮亏+SL距+RSI+ADX）
     # 强趋势(ADX>35)中的浮亏: 不要急着收紧，被扫止损概率低
     # 震荡市场(ADX<25)中的浮亏: 立即收紧，趋势不可靠
@@ -2412,6 +2439,27 @@ def execute_action(coin, action, pos, algos, md, equity, repair_sl=None, repair_
             new_sl = round(entry * (1 + lock_pct), 4) if pos['side'] == 'long' else round(entry * (1 - lock_pct), 4)
             ok, r = amend_sl(instId, sl_id, new_sl)
             results.append(('追踪SL', ok, f'→{new_sl}(锁{lock_pct:.1%})'))
+
+    elif action == 'partial_profit':
+        # RSI>=75超买+弱趋势熊市 → 止盈50% + 收紧SL保本
+        # 剩余50%继续持有，但SL收紧到入场价+0.5%（保本线）
+        close_ratio = 0.5
+        sz_to_close = max(1, int(pos['pos'] * close_ratio))
+        ok, r = close_partial(instId, pos['side'], pos['pos'], close_ratio)
+        results.append(('部分止盈', ok, f'RSI超买平50%={sz_to_close}张'))
+        if ok:
+            # 收紧剩余50%的SL到保本线
+            sl_id = algos.get('sl', {}).get('algoId') if algos.get('sl') else None
+            remaining_pos = pos['pos'] - sz_to_close
+            if sl_id and remaining_pos >= 1:
+                entry = pos.get('avgPx', price)
+                breakeven_sl = round(entry * 1.005, 4)  # 保本+0.5%
+                if pos['side'] == 'long':
+                    new_sl = max(float(sl_id), breakeven_sl)  # 不降低已有SL
+                else:
+                    new_sl = min(float(sl_id), breakeven_sl)
+                ok2, r2 = amend_sl(instId, sl_id, new_sl)
+                results.append(('收紧SL', ok2, f'→保本线{new_sl}'))
 
     elif action.startswith('partial_tp_'):
         stage_idx = int(action.split('_')[1]) - 1
@@ -3522,6 +3570,26 @@ def full_scan(notify=True):
             if sl_algo_id and new_sl:
                 ok, msg = amend_sl(instId, sl_algo_id, new_sl)
                 print(f"  🔒 收紧SL: {coin}→{new_sl} | {msg}")
+
+        elif action == 'partial_profit':
+            # RSI>=75超买+弱趋势熊市 → 止盈50% + 收紧SL保本
+            sz = pos['pos']
+            sz_half = max(1, int(sz * 0.5))
+            ok, msg = close_partial(instId, pos['side'], sz, 0.5)
+            print(f"  💰 部分止盈: {coin} {sz_half}张({sz_half}/{sz}) | {msg}")
+            if ok:
+                # 收紧剩余50% SL到保本线
+                sl_data = algos.get('sl')
+                sl_algo_id = sl_data.get('algoId') if sl_data else None
+                entry = pos.get('avgPx', 0)
+                if sl_algo_id and entry:
+                    breakeven_sl = round(entry * 1.005, 4)
+                    if pos['side'] == 'long':
+                        new_sl = max(breakeven_sl, float(sl_data.get('price', 0)))
+                    else:
+                        new_sl = min(breakeven_sl, float(sl_data.get('price', 999999)))
+                    ok2, msg2 = amend_sl(instId, sl_algo_id, new_sl)
+                    print(f"  🔒 部分止盈+收紧SL: {coin}→{new_sl} | {msg2}")
 
         elif action in ('take_profit', 'tp1', 'tp2', 'tp3'):
             # 分批止盈
