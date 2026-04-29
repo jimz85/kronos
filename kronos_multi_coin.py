@@ -2429,6 +2429,10 @@ def execute_action(coin, action, pos, algos, md, equity, repair_sl=None, repair_
         side = raw_side
 
     if action == 'repair_sl_tp':
+        # P0 Fix: 如果repair_sl/repair_tp无效，跳过防止place_oco收到False参数
+        if not repair_sl or not repair_tp:
+            results.append(('repair_sl_tp跳过', False, f'无效参数 SL={repair_sl} TP={repair_tp}'))
+            return results
         # 修复缺失的SL/TP：必须用OCO合并为1个订单(P0 Bug修复)
         cleanup_coin_algos(instId)
         algo_id = place_oco(instId, side, pos['pos'], repair_sl, repair_tp)
@@ -3532,13 +3536,20 @@ def full_scan(notify=True):
         elif action == 'repair_sl_tp':
             new_sl = dec['new_sl']
             new_tp = dec['new_tp']
+            # P0 Fix: 如果new_sl/new_tp无效(比如tighten_sl被错误标记为repair_sl_tp)，跳过
+            if not new_sl or not new_tp:
+                print(f"  ⚠️ repair_sl_tp跳过: {coin} new_sl={new_sl} new_tp={new_tp}(无效参数)")
+                continue
             # 先取消旧的SL/TP
             # P0 Fix: algos is always a dict but may have no actual algo orders (all None/[]).
             # Check for presence of actual algo data, not just "if not algos" which is always truthy.
             has_algos = bool(algos.get('sl') or algos.get('tp') or algos.get('oco'))
             if not has_algos:
                 # 没有algo信息，当作无旧单处理，直接挂新OCO
-                # P0 Fix: pos['side']='buy'/'sell' → 'long'/'short'
+                # P0 Fix: new_sl/new_tp无效则跳过
+                if not new_sl or not new_tp:
+                    print(f"  ⚠️ repair_sl_tp跳过: {coin} new_sl={new_sl} new_tp={new_tp}(无效参数)")
+                    continue
                 sz = pos['pos']
                 raw_side = pos['side']
                 if raw_side in ('buy', 'sell'):
