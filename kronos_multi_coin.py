@@ -3502,9 +3502,14 @@ def full_scan(notify=True):
             has_algos = bool(algos.get('sl') or algos.get('tp') or algos.get('oco'))
             if not has_algos:
                 # 没有algo信息，当作无旧单处理，直接挂新OCO
+                # P0 Fix: pos['side']='buy'/'sell' → 'long'/'short'
                 sz = pos['pos']
-                side = pos['side']
-                algo_id = place_oco(instId, side, sz, new_sl, new_tp)
+                raw_side = pos['side']
+                if raw_side in ('buy', 'sell'):
+                    side_for_oco = 'long' if raw_side == 'buy' else 'short'
+                else:
+                    side_for_oco = raw_side
+                algo_id = place_oco(instId, side_for_oco, sz, new_sl, new_tp)
                 if algo_id:
                     print(f"  🔧 修复SL/TP(无旧单): {coin} SL={new_sl} TP={new_tp} [{algo_id[:8]}]")
                     # P0 Fix: 验证SL/TP已挂
@@ -3524,10 +3529,15 @@ def full_scan(notify=True):
             old_tp_ids = [o['algoId'] for o in algos.get('tp', []) if o.get('algoId')]
             if old_tp_ids:
                 cancel_algos(instId, old_tp_ids)
-            # 重新挂OCO
+            # P0 Fix: pos['side']='buy'/'sell' (OKX格式) vs 'long'/'short' (内部格式)
+            # 统一转换为内部格式，避免place_oco内转换遗漏
             sz = pos['pos']
-            side = pos['side']
-            algo_id = place_oco(instId, side, sz, new_sl, new_tp)
+            raw_side = pos['side']
+            if raw_side in ('buy', 'sell'):
+                side_for_oco = 'long' if raw_side == 'buy' else 'short'
+            else:
+                side_for_oco = raw_side  # 已是'long'/'short'
+            algo_id = place_oco(instId, side_for_oco, sz, new_sl, new_tp)
             if algo_id:
                 print(f"  🔧 修复SL/TP: {coin} SL={new_sl} TP={new_tp} [{algo_id[:8]}]")
                 # P0 Fix: 验证SL/TP已挂
