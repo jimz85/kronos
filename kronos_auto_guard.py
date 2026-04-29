@@ -35,6 +35,7 @@ from real_monitor import (
 from kronos_heartbeat import (
     load_circuit_state, check_circuit_breaker, sync_circuit_from_positions
 )
+from kronos_multi_coin import SL_DANGER_PCT  # P1统一SL危险阈值(0.5%)
 
 # ============ 配置 ============
 FEISHU_APP_ID = os.getenv('FEISHU_APP_ID', '')
@@ -46,8 +47,8 @@ MINIMAX_BASE_URL = os.getenv('MINIMAX_BASE_URL', 'https://api.minimaxi.com/v1')
 LOCK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.kronos_dispatch.lock')
 LOCK_TIMEOUT = 30
 
-# 危险阈值
-SL_DANGER_PCT = 2.0     # SL距现价<2%为极度危险
+# 危险阈值(从kronos_multi_coin导入统一值SL_DANGER_PCT=0.5%)
+# 注意：kronos_auto_guard使用0.5%作为SL极度危险阈值（原值2.0%已废弃）
 SL_WARN_PCT = 4.0      # SL距现价<4%为警告
 LIQ_DANGER_PCT = 3.0   # 强平距离<3%为危险
 TIMEOUT_WARN_PCT = 80   # 持仓时间>80%为警告

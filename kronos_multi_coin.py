@@ -87,6 +87,10 @@ RISK_PER_TRADE = 0.01      # 每笔风险1%账户
 MAX_POS_RATIO = 0.02       # 单仓位最大2%账户(更保守，避免OKX拒绝)
 MIN_CONTRACTS = 10          # 最小仓位
 
+# P1统一SL危险阈值：SL距现价<0.5%=极危险(绝对紧急触发close)
+# 原值：kronos_multi_coin.py=0.5%, kronos_auto_guard.py=2.0%, kronos_active_judgment.py=1.0%
+SL_DANGER_PCT = 0.005  # 0.5% - 统一后的SL极度危险阈值
+
 # 币种列表
 ALL_COINS = ['AVAX', 'ETH', 'BTC', 'SOL', 'DOT', 'LINK', 'BNB', 'XRP']  # DOGE/ADA下架：WFO验证严重劣化(Sharpe负值)
 
@@ -2081,7 +2085,7 @@ def decide_for_position(coin, pos, algos, md):
             return 'repair_sl_tp', 6, f'SL偏差{sl_deviation:.0%}建议收紧 {actual_sl_pct:.2%}→{sl_pct_dynamic:.2%}(当前距现价{sl_dist:.1f}%)' + oversized_note, False, new_sl, new_tp
 
     # P1: 跌穿SL(极危险，SL距现价<0.5%，绝对紧急)
-    if sl_dist < 0.5:
+    if sl_dist < SL_DANGER_PCT:
         return 'close', 9, f'SL距现价{sl_dist:.2f}%极危险' + oversized_note, False, None, None
 
     # P2: 保本止损 — 动态阈值（震荡市场0.5%，强趋势市场2%）

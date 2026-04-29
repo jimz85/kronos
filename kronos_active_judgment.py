@@ -31,6 +31,7 @@ from real_monitor import (
     get_real_positions, get_real_sl_tp_orders, get_account_balance,
     _req, _ts, cancel_algo_orders, get_atr_stop
 )
+from kronos_multi_coin import SL_DANGER_PCT  # P1统一SL危险阈值(0.5%)
 
 # ============ 配置 ============
 LOCK_FILE = os.path.join(os.path.dirname(__file__), '.judgment.lock')
@@ -65,7 +66,7 @@ TP_BOOST_RULES = [
 
 # 止损规则
 MAX_LOSS_PCT = 0.05    # 最大亏损5%强制止损
-SL_DANGER_PCT = 0.01   # SL距现价<1%为极度危险
+# 注意：SL_DANGER_PCT已从kronos_multi_coin导入统一值0.5%（原值1.0%已废弃）
 
 # ============ 工具函数 ============
 def get_price(coin):
