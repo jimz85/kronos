@@ -1893,6 +1893,32 @@ def decide_for_position(coin, pos, algos, md):
     pos_state = get_position_state(coin)
     stage = pos_state.get('stage', 0)
 
+    # === 市场动态阈值计算 ===
+    # 根据ADX判断趋势强度，决定SL/TP调整的激进程度
+    # 核心原则：SL/TP是最后防线，系统必须先独立判断市场再去管理仓位
+    adx = md.get('adx_1h', 20)
+    rsi = md.get('rsi_1h', 50)
+    atr_pct = md.get('atr_pct', 2.0)
+    sl_pct_dynamic, tp_pct_dynamic = get_sl_tp_pct(coin, atr_pct)
+
+    # 趋势强度因子 (0.5~1.5): ADX越高→趋势越强→更激进锁定利润
+    trend_factor = min(1.0 + (adx - 20) / 40, 1.5)   # ADX=20→1.0, ADX=40→1.5
+    # 反趋势因子 (0.5~1.5): ADX越低→震荡越强→更早保本不冒险
+    ranging_factor = max(1.0 - (adx - 15) / 30, 0.5)   # ADX=15→1.0, ADX=45→0.5
+
+    # 动态保本阈值: 震荡市场0.5%，强趋势市场2%
+    # 在强趋势中，给仓位更多空间；在震荡中，早保本早安心
+    dynamic_breakeven_trigger = 0.5 * ranging_factor   # 0.5%~1.5%
+
+    # 动态追踪止损: ADX越高→触发越早→锁定更多利润
+    dynamic_trail_trigger = tp_pct_dynamic * 0.5 / trend_factor   # 强趋势更早触发
+
+    # 动态止盈RSI阈值: 强趋势中RSI可以更高(80+)才止盈，震荡中RSI>65就该走
+    dynamic_tp_rsi_threshold = 65 + (adx - 20) * 0.8    # ADX=20→65, ADX=40→81
+
+    # 动态收紧SL RSI配合: RSI超买+趋势弱→立即收紧; RSI超买+趋势强→可以等
+    tighten_sl_rsi_threshold = max(60, 70 - (adx - 20) * 0.5)  # ADX=20→70, ADX=40→60
+
     # === 首先检查：仓位是否缺少SL或TP(最优先)===
     need_sl = sl_price is None
     need_tp = tp_price is None
@@ -1937,61 +1963,68 @@ def decide_for_position(coin, pos, algos, md):
             # 注意：紧急收紧可能立即触发止损，只建议不自动执行
             return 'repair_sl_tp', 6, f'SL偏差{sl_deviation:.0%}建议收紧 {actual_sl_pct:.2%}→{sl_pct_dynamic:.2%}(当前距现价{sl_dist:.1f}%)' + oversized_note, False, new_sl, new_tp
 
-    # P1: 跌穿SL(SL距现价<0.5%)
+    # P1: 跌穿SL(极危险，SL距现价<0.5%，绝对紧急)
     if sl_dist < 0.5:
         return 'close', 9, f'SL距现价{sl_dist:.2f}%极危险' + oversized_note, False, None, None
 
-    # P2: 保本止损(浮盈>1% → SL移到入场价，不亏钱)
-    # 独立于ADX，任何时候只要浮盈>1%就保本
-    BREAKEVEN_TRIGGER = 0.01  # 1%浮盈触发保本
-    if pnl_pct > BREAKEVEN_TRIGGER * 100:
+    # P2: 保本止损 — 动态阈值（震荡市场0.5%，强趋势市场2%）
+    # 在强趋势中，给仓位更多空间；在震荡中，早保本早安心
+    if pnl_pct > dynamic_breakeven_trigger * 100:
         breakeven_sl = entry  # SL = 入场价，不亏钱
         if side == 'long' and sl_price is not None and breakeven_sl > sl_price:
-            return 'trailing_sl', 8, f'浮盈{pnl_pct:.1f}%→保本SL={breakeven_sl}(锁0%)' + oversized_note, False, None, None
+            return 'trailing_sl', 8, f'浮盈{pnl_pct:.1f}%→保本SL={breakeven_sl}(ADX={adx:.0f},触发{dynamic_breakeven_trigger:.1%})' + oversized_note, False, None, None
         elif side == 'short' and sl_price is not None and breakeven_sl < sl_price:
-            return 'trailing_sl', 8, f'浮盈{pnl_pct:.1f}%→保本SL={breakeven_sl}(锁0%)' + oversized_note, False, None, None
+            return 'trailing_sl', 8, f'浮盈{pnl_pct:.1f}%→保本SL={breakeven_sl}(ADX={adx:.0f},触发{dynamic_breakeven_trigger:.1%})' + oversized_note, False, None, None
 
-    # P2.5: 追踪止损(浮盈>TP的50%，且ADX>25趋势强 → 锁定更多利润)
+    # P2.5: 追踪止损 — 动态阈值（ADX越高→触发越早→锁定更多利润）
+    # 核心：ADX>25确认趋势存在，才启动追踪；强趋势(ADX>35)更早锁定利润
     atr_pct = md.get('atr_pct', 2.0)
     sl_pct_dynamic, tp_pct_dynamic = get_sl_tp_pct(coin, atr_pct)
-    # 注意：pnl_pct是百分比形式(如0.7=0.7%)，tp_pct_dynamic是分数形式(如0.02=2%)
-    # 所以直接比较：pnl_pct > tp_pct_dynamic
-    trail_trigger_pct = tp_pct_dynamic * 0.5  # 浮盈达到TP距离的50%时触发
-    if pnl_pct > trail_trigger_pct and md['adx_1h'] > 25:
-        # 追踪止损：SL锁定在入场价+TP距离的25%(相当于锁定部分利润)
-        lock_pct = tp_pct_dynamic * 0.25  # 锁定TP距离的25%作为回调底线
-        lock_pct = max(lock_pct, TRAIL_LOCK_PCT)  # 至少2%(TRAIL_LOCK_PCT=0.02)
+    # 趋势强度动态锁利: ADX越高，锁定TP距离的百分比越高(25%~50%)
+    lock_pct_base = min(0.25 + (adx - 25) / 40, 0.5)   # ADX=25→25%, ADX=45→50%
+    lock_pct = lock_pct_base
+    lock_pct = max(lock_pct, TRAIL_LOCK_PCT)  # 至少2%(TRAIL_LOCK_PCT=0.02)
+    if pnl_pct > dynamic_trail_trigger * 100 and adx > 25:
         if side == 'long':
             trailing_sl = round(entry * (1 + lock_pct), 4)
             if sl_price is None or trailing_sl > sl_price:
-                return 'trailing_sl', 8, f'浮盈{pnl_pct:.1f}%→追踪SL={trailing_sl}(锁{lock_pct:.1%})' + oversized_note, False, None, None
+                return 'trailing_sl', 8, f'浮盈{pnl_pct:.1f}%→追踪SL={trailing_sl}(锁{lock_pct:.1%},ADX={adx:.0f})' + oversized_note, False, None, None
         else:
             trailing_sl = round(entry * (1 - lock_pct), 4)
             if sl_price is None or trailing_sl < sl_price:
-                return 'trailing_sl', 8, f'浮盈{pnl_pct:.1f}%→追踪SL={trailing_sl}(锁{lock_pct:.1%})' + oversized_note, False, None, None
+                return 'trailing_sl', 8, f'浮盈{pnl_pct:.1f}%→追踪SL={trailing_sl}(锁{lock_pct:.1%},ADX={adx:.0f})' + oversized_note, False, None, None
 
-    # P3: 分批止盈(按阶段，不重复)
-    # 动态触发：浮盈达到TP距离的33%时首批，TP距离的66%时二批
+    # P3: 分批止盈 — 动态RSI阈值
+    # 强趋势(ADX>35): RSI可以到80才走，让利润奔跑
+    # 震荡市场(ADX<25): RSI>65就走，不贪
     partial_trigger_pct = tp_pct_dynamic * 0.33  # TP的1/3触发首批
     if stage < len(TP_STAGES):
         tp_stage = TP_STAGES[stage]
-        # pnl_pct是百分比(如0.7)，partial_trigger_pct是分数(如0.02)，直接比较
-        if pnl_pct > partial_trigger_pct and (md['rsi_1h'] > 65 or (0 < tp_dist < tp_pct_dynamic * 5)):
-            return tp_stage['trigger'], 7, f'浮盈{pnl_pct:.1f}% {tp_stage["label"]}(触发{partial_trigger_pct:.0%})' + oversized_note, False, None, None
+        # RSI峰值止盈: RSI从高点回落(>65+ADX确认趋势弱) OR TP已非常近
+        rsi_peak = rsi > 65 and (adx < 25 or rsi > dynamic_tp_rsi_threshold)
+        if pnl_pct > partial_trigger_pct * 100 and (rsi_peak or (0 < tp_dist < tp_pct_dynamic * 5)):
+            return tp_stage['trigger'], 7, f'浮盈{pnl_pct:.1f}% {tp_stage["label"]}(RSI={rsi:.0f} ADX={adx:.0f})' + oversized_note, False, None, None
 
-    # P4: 收紧SL(浮亏+SL距<2%)
-    if pnl_pct < 0 and sl_dist < 2.0:
-        atr_pct = md.get('atr_pct', 2.0)
+    # P4: 收紧SL — 动态阈值（结合浮亏+SL距+RSI+ADX）
+    # 强趋势(ADX>35)中的浮亏: 不要急着收紧，被扫止损概率低
+    # 震荡市场(ADX<25)中的浮亏: 立即收紧，趋势不可靠
+    tighten_sl_dist_threshold = 2.0 + (adx - 20) * 0.1   # ADX=20→2%, ADX=35→3.5%
+    if pnl_pct < 0 and sl_dist < tighten_sl_dist_threshold:
+        # RSI超买配合 → 收紧更急迫
+        urgency_mod = 2 if rsi > tighten_sl_rsi_threshold else 0
         sl_pct_dynamic, _ = get_sl_tp_pct(coin, atr_pct)
         new_sl = round(entry * (1 - sl_pct_dynamic), 4) if side == 'long' else round(entry * (1 + sl_pct_dynamic), 4)
         if side == 'long' and (sl_price is None or new_sl > sl_price):
-            return 'tighten_sl', 6, f'SL收紧{sl_dist:.1f}%→{new_sl}({sl_pct_dynamic:.1%})' + oversized_note, False, None, None
+            return 'tighten_sl', 6 + urgency_mod, f'SL收紧{sl_dist:.1f}%→{new_sl}(RSI={rsi:.0f}ADX={adx:.0f})' + oversized_note, False, None, None
         elif side == 'short' and (sl_price is None or new_sl < sl_price):
-            return 'tighten_sl', 6, f'SL收紧{sl_dist:.1f}%→{new_sl}({sl_pct_dynamic:.1%})' + oversized_note, False, None, None
+            return 'tighten_sl', 6 + urgency_mod, f'SL收紧{sl_dist:.1f}%→{new_sl}(RSI={rsi:.0f}ADX={adx:.0f})' + oversized_note, False, None, None
 
-    # P5: 全止盈(RSI极端超买+很强趋势+浮盈>8%)
-    if pnl_pct > 8 and md['rsi_1h'] > 75 and md['adx_1h'] > 30:
-        return 'take_profit', 5, f'RSI极端超买+浮盈{pnl_pct:.1f}%全止盈' + oversized_note, False, None, None
+    # P5: 全止盈 — 动态RSI+ADX
+    # 强趋势: RSI>80+ADX>35才全止盈，让利润奔跑
+    # 震荡: RSI>70+ADX<25就全止盈
+    tp_rsi_full = dynamic_tp_rsi_threshold + 5   # 比分批止盈高5
+    if pnl_pct > 8 and rsi > tp_rsi_full and adx > 30:
+        return 'take_profit', 5, f'RSI极端({rsi:.0f})+强趋势(ADX={adx:.0f})+浮盈{pnl_pct:.1f}%全止盈' + oversized_note, False, None, None
 
     return 'hold', 0, f'浮盈{pnl_pct:+.1f}% SL距{sl_dist:.1f}% TP距{tp_dist:.1f}%' + oversized_note, False, None, None
 
@@ -2513,7 +2546,7 @@ def gemma4_central_decision(all_data):
         }
     
     # ========== Step 3: 构建职业操盘手prompt ==========
-    # 格式化和格式化和超仓警告
+    # 扩展版: 对每个持仓给出完整市场数据，让gemma4独立判断所有仓位
     pos_block = []
     for coin, pos in positions.items():
         price = pos.get('last', 0)
@@ -2526,6 +2559,47 @@ def gemma4_central_decision(all_data):
         sl_dist = (price - sl_price) / price * 100 if sl_price and price else 0
         tp_dist = (tp_price - price) / price * 100 if tp_price and price else 0
         margin_pct = (pos.get('pos', 0) * entry / (equity or 1) * 100) if entry and pos.get('pos', 0) else 0
+
+        # 获取逐币市场数据 (md 是 positions[key]['md']，在阶段1已填充)
+        pos_md = pos.get('md', {})
+        rsi_1h = pos_md.get('rsi_1h', 0)
+        adx_1h = pos_md.get('adx_1h', 0)
+        atr_pct = pos_md.get('atr_pct', 0)
+        atr_p = pos_md.get('atr_percentile', 0)
+        vol_ratio = pos_md.get('vol_ratio', 0)
+        cci_4h = pos_md.get('cci_4h', 0)
+
+        # 趋势判断
+        if rsi_1h < 35 and adx_1h > 20:
+            trend = '做多信号'
+        elif rsi_1h > 65 and adx_1h > 20:
+            trend = '做空信号'
+        elif adx_1h < 20:
+            trend = '震荡无趋势'
+        else:
+            trend = '中性'
+
+        # 市场状态评估
+        if rsi_1h < 30:
+            rsi_status = '严重超卖'
+        elif rsi_1h < 45:
+            rsi_status = '偏弱'
+        elif rsi_1h > 70:
+            rsi_status = '严重超买'
+        elif rsi_1h > 55:
+            rsi_status = '偏强'
+        else:
+            rsi_status = '中性'
+
+        if adx_1h > 35:
+            adx_status = '强趋势'
+        elif adx_1h > 25:
+            adx_status = '中等趋势'
+        elif adx_1h > 18:
+            adx_status = '弱趋势'
+        else:
+            adx_status = '震荡'
+
         status_emoji = '✅' if pnl_pct >= 0 else '⚠️'
 
         # 超仓警告
@@ -2536,14 +2610,15 @@ def gemma4_central_decision(all_data):
             notional = pos.get('_notional', sz * entry)
             margin_pct = pos.get('_margin_pct', 0)
             if formula_sz > 0 and sz > formula_sz * 3:
-                risk_note = f'⚠️ 【高风险仓位警报】{sz}张 vs 公式{formula_sz}张(差{sz/max(formula_sz,1):.0f}倍) | 名义${notional:,.0f} | 保证金{abs(margin_pct):.1f}%equity | ⚠️必须判断：平仓一半？全平？收紧止损？'
+                risk_note = f'⚠️ 【高风险仓位警报】{sz}张 vs 公式{formula_sz}张(差{sz/max(formula_sz,1):.0f}倍) | 名义${notional:,.0f} | 保证金{abs(margin_pct):.1f}%equity'
                 oversize_note = f'\n  {risk_note}'
 
         pos_block.append(
             f"{status_emoji} {coin}: {side.upper()} {pos['pos']}张 "
             f"入场${entry} → 现价${price} | {pnl_pct:+.2f}%(${pnl:+.0f}) "
             f"| SL${sl_price}({sl_dist:+.1f}%) TP${tp_price}({tp_dist:+.1f}%) "
-            f"| 保证金{margin_pct:.1f}%{oversize_note}"
+            f"| RSI={rsi_1h:.0f}({rsi_status}) ADX={adx_1h:.0f}({adx_status}) "
+            f"| 趋势={trend} | ATR%={atr_pct:.1f}% | 保证金{margin_pct:.1f}%{oversize_note}"
         )
     
     # 格式化候选币
@@ -2661,31 +2736,51 @@ def gemma4_central_decision(all_data):
         sz = 0
         margin_pct = 0
     
-    prompt = f"""你是专业操盘手。这个账户有1个紧急风险仓位需要你立即决策。
+    prompt = f"""你是专业加密货币操盘手。这个账户需要你对每个持仓做独立的市场判断决策。
 
 ## 账户
 equity=${equity:,.0f} | 持仓{len(positions)}/{MAX_POSITIONS}个 | 保证金总占比{total_margin:.1f}% | 熔断:{'✅' if treasury_ok else '🚫'}
 
-## 紧急风险仓位（必须决策）
-{top_pos_info}
+## 所有持仓（每个都要做决策）
+{chr(10).join(pos_block)}
 
-## 市场
+## 市场环境
 市场={local_ctx.get('market_regime','?')} | 主方向={local_ctx.get('primary_direction','?')}
+RSI中位数: {safe_float(local_ctx.get('_rsi_median'), 50):.1f} | ADX中位数: {safe_float(local_ctx.get('_adx_median'), 15):.1f}
+禁止操作: {local_forbidden}
+战略提示: {local_ctx.get('strategic_hint','?')}
 
-## 决策要求
-超仓{_top_ratio:.0f}倍（>{_top_threshold:.0f}张）时，系统规则要求：
-→ 必须选择: force_close（全平）或 close_half（平一半）
-→ tighten_sl 不足以控制风险（已超仓100倍以上）
+## 决策要求（必须对每个持仓做决策）
+【核心原则】SL/TP是最后防线。你的首要任务是判断：这个持仓本身还是好交易吗？
+- 趋势是否仍然有效？（ADX>25确认趋势，ADX<20无趋势）
+- RSI是否过热需要止盈？（强趋势中RSI可以到80才走）
+- RSI是否超卖可以加仓？
+- 浮亏时趋势是否已破？（震荡市场中浮亏更危险）
 
-## 决策格式（必须严格遵守）
-coin: {top_oversize[1] if top_oversize else ''}
-decision: force_close 或 close_half
-reason: 1句话说明理由
+【决策选项】（每个持仓必须选一个）
+- hold: 趋势有效，仓位正常，继续持有
+- force_close: 立即全平（资金安全、趋势破位、严重超仓）
+- close_half: 平一半（部分止盈、降风险）
+- tighten_sl: 收紧止损（浮亏+趋势弱，收紧保护）
+- trailing_sl: 追踪止损（已有盈利，收紧SL锁定利润）
+- partial_profit: 分批止盈（首批50%止盈）
+
+【决策逻辑】
+- 做多持仓 RSI>75 + ADX>35 → partial_profit 或 force_close
+- 做多持仓 RSI<30 → hold 或加仓（超卖是买入机会）
+- 浮亏 + ADX<20(震荡) → tighten_sl 或 force_close
+- 强趋势(ADX>35)中浮盈 → trailing_sl 让利润奔跑
+- 超仓 → force_close 或 close_half
+
+## 决策格式（严格遵守，选最需要处理的1个持仓）
+coin: [币种]
+decision: [上述选项之一]
+reason: [不超过20字，基于RSI+ADX+趋势说明理由]
 
 ---
-coin: {top_oversize[1] if top_oversize else 'BNB'}
-decision: force_close
-reason: 超仓{_top_ratio:.0f}倍({sz}张)，保证金{margin_pct:.1f}%equity，必须清仓降低风险
+coin: {list(positions.keys())[0] if positions else ''}
+decision: hold
+reason: [基于市场数据和持仓状态给出一个决策]
 ---
 """
 
@@ -3119,6 +3214,7 @@ def full_scan(notify=True):
         
         pos['last'] = price
         pos['algos'] = algos
+        pos['md'] = md  # 必须存pos['md']，gemma4_central_decision需要逐币市场数据
         pos['sl_price'] = sl_price
         pos['tp_price'] = tp_price
         pos['sl_dist'] = sl_dist
