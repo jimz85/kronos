@@ -68,7 +68,7 @@ from data.atr_watchlist import ATRWatchlist
 # ═══════════════════════════════════════════════════════════════════════════
 def fetch_okx_candles(
     inst_id: str,
-    bar: str = "1h",
+    bar: str = "1H",
     limit: int = 300,
 ) -> Optional["pd.DataFrame"]:
     """
@@ -254,7 +254,7 @@ class KronosEngine:
                 return self._result("BLOCKED", {}, start, safe_msg)
 
             # ── Step 1: 市场感知 ─────────────────────────────────────────
-            btc_df = fetch_okx_candles("BTC-USDT-SWAP", bar="1h", limit=300)
+            btc_df = fetch_okx_candles("BTC-USDT-SWAP", bar="1H", limit=300)
             if btc_df is None or len(btc_df) < 50:
                 return self._result("NO_DATA", {}, start, "BTC K线获取失败")
 
@@ -310,7 +310,7 @@ class KronosEngine:
 
         candidates = []
         for inst_id in self.SCAN_COINS:
-            df = fetch_okx_candles(inst_id, bar="1h", limit=300)
+            df = fetch_okx_candles(inst_id, bar="1H", limit=300)
             if df is None or len(df) < 100:
                 continue
 

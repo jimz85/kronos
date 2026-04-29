@@ -11,6 +11,74 @@
 
 ## System Architecture
 
+### Mermaid Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph EXTERNAL["External Services"]
+        OKX["OKX Exchange API"]
+        FEISHU["Feishu Notifications"]
+        AI["MiniMax AI API"]
+    end
+
+    subgraph ENTRY["Entry Points"]
+        PILOT["PILOT<br/>Main Loop"]
+        AUTO_GUARD["AUTO_GUARD<br/>3min cron"]
+        HEARTBEAT["HEARTBEAT<br/>hourly"]
+        REAL_MONITOR["REAL_MONITOR<br/>1min cron"]
+    end
+
+    subgraph P0["Phase 0: Core"]
+        CORE_CONFIG["config.py"]
+        CORE_CONST["constants.py"]
+        CORE_INDICATORS["indicators.py"]
+        CORE_GEMMA["gemma4_parser.py"]
+    end
+
+    subgraph P1["Phase 1: Strategies"]
+        REGIME["Regime Classifier<br/>BULL/BEAR/RANGE/VOLATILE"]
+        ALPHA["Alpha Engine<br/>Mean Reversion"]
+        BETA["Beta Engine<br/>Trend Following"]
+    end
+
+    subgraph P2["Phase 2: Models"]
+        CONFIDENCE["Confidence Scorer"]
+        POSITION["Position Sizer"]
+    end
+
+    subgraph P3["Phase 3: Risk"]
+        CIRCUIT["Circuit Breaker"]
+        TRAILING["Dynamic Trailing"]
+    end
+
+    subgraph P4["Phase 4: Data"]
+        ATR["ATR Watchlist"]
+        EVOLUTION["Evolution Engine"]
+        DAILY["Daily Review"]
+    end
+
+    subgraph P5["Phase 5: Execution"]
+        EXEC["Order Execution<br/>(reserved)"]
+    end
+
+    PILOT --> P0
+    AUTO_GUARD --> P0
+    HEARTBEAT --> P0
+    REAL_MONITOR --> P0
+
+    P0 --> P1
+    P1 --> P2
+    P2 --> P3
+    P3 --> P4
+    P4 --> P5
+
+    P0 <--> OKX
+    P3 <--> FEISHU
+    P3 <--> AI
+```
+
+### ASCII Architecture Diagram
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           KRONOS v5.0 ARCHITECTURE                          │
@@ -38,7 +106,7 @@
 │  │ AlphaEngine │          │Confidence   │           │  Circuit    │        │
 │  │ BetaEngine  │          │  Scorer     │           │  Breaker    │        │
 │  │ Regime      │          │ Position    │           │  Dynamic    │        │
-│  │ Classifier  │          │ Sizer       │           │  Trailing   │        │
+│  │ Classifier │          │ Sizer       │           │  Trailing   │        │
 │  └─────────────┘          └─────────────┘           └─────────────┘        │
 │                                    │                                        │
 │                                    ▼                                        │
@@ -61,6 +129,98 @@
 │  └─────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Data Pipeline Framework
+
+### Complete Data Flow
+
+```mermaid
+flowchart LR
+    subgraph INGESTION["1. Market Data Ingestion"]
+        OKX_API["OKX API"] --> FETCH["fetch_okx_candles()"]
+        FETCH --> DF["pandas DataFrame"]
+        DF --> VALIDATE["Data Validation<br/>1h, 4h, 1d bars"]
+    end
+
+    subgraph REGIME["2. Regime Classification"]
+        VALIDATE --> REGIME_CLS["RegimeClassifier"]
+        REGIME_CLS --> REGIME_TYPE["RegimeType"]
+        REGIME_TYPE -->|"CHOP <= 50"| ALPHA["Alpha Engine"]
+        REGIME_TYPE -->|"CHOP > 50"| BETA["Beta Engine"]
+    end
+
+    subgraph SIGNAL["3. Signal Generation"]
+        ALPHA --> SIG_ALPHA["SignalType<br/>LONG/SHORT"]
+        BETA --> SIG_BETA["SignalType<br/>LONG/SHORT"]
+        SIG_ALPHA --> CONF["ConfidenceScorer"]
+        SIG_BETA --> CONF
+        CONF --> SCORE["Score 0.0-1.0"]
+    end
+
+    subgraph RISK["4. Risk Management"]
+        SCORE --> CIRCUIT["CircuitBreaker.is_allowed()"]
+        CIRCUIT -->|if allowed| SIZER["PositionSizer.calculate()"]
+        CIRCUIT -->|blocked| DROP["Cancel Trade"]
+    end
+
+    subgraph EXEC["5. Execution"]
+        SIZER --> PAPER["Paper Trade Mode"]
+        PAPER --> STATE["paper_trades.json"]
+    end
+
+    subgraph MONITOR["6. Monitoring Loop"]
+        STATE --> REAL["real_monitor<br/>1min"]
+        STATE --> GUARD["auto_guard<br/>3min"]
+        STATE --> HEART["heartbeat<br/>hourly"]
+    end
+```
+
+### Pipeline Stage Details
+
+#### Stage 1: Data Ingestion
+
+| Component | Description |
+|-----------|-------------|
+| `fetch_okx_candles()` | Fetches OHLCV data from OKX API |
+| Multi-timeframe | Supports 1h, 4h, 1d bars |
+| Validation | Ensures data completeness |
+
+#### Stage 2: Regime Classification
+
+| Regime | Condition | Strategy |
+|--------|-----------|----------|
+| `BULL_TREND` | Uptrend detected | Beta (Trend Following) |
+| `BEAR_TREND` | Downtrend detected | Beta (Trend Following) |
+| `RANGE_BOUND` | No clear trend | Alpha (Mean Reversion) |
+| `VOLATILE` | High volatility | Reduced position |
+
+#### Stage 3: Signal Generation
+
+```python
+# Signal confidence scoring
+confidence = ConfidenceScorer.calculate(
+    regime=regime,
+    signal=signal,
+    indicators={'rsi': 45, 'adx': 30}
+)
+```
+
+#### Stage 4: Risk Management
+
+| Check | Condition | Action |
+|-------|-----------|--------|
+| Circuit Breaker | 3 consecutive losses | Block new trades |
+| Position Size | Based on confidence | Dynamic sizing |
+| Trailing Stop | ADX-adaptive | Follow price |
+
+#### Stage 5: Execution
+
+| Mode | OKX_FLAG | Description |
+|------|----------|-------------|
+| Paper Trade | `1` | Simulated trading |
+| Live Trade | `0` | Real execution |
 
 ---
 

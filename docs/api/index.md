@@ -6,6 +6,8 @@ Welcome to the Kronos API documentation. Kronos is a trading platform providing 
 
 - [Core Modules API Reference](./core.md) - Core system components including configuration, logging, and data models
 - [Trading Modules API Reference](./trading.md) - Trading-specific APIs for order management, execution, and market data
+- [WebUI API Specification](./openapi.yaml) - OpenAPI 3.0 specification for the Flask WebUI endpoints (Swagger UI available at `/api/docs`)
+- [Prometheus Metrics API](./prometheus_metrics.yaml) - OpenAPI specification for Prometheus metrics exporter
 
 ## Quick Start
 
@@ -26,6 +28,19 @@ All API requests require authentication via API key passed in the `X-API-Key` he
 | Free | 60 | 1,000 |
 | Pro | 600 | 50,000 |
 | Enterprise | 6,000 | Unlimited |
+
+## Swagger UI
+
+Interactive API documentation is available at:
+
+- **WebUI API**: `http://localhost:7070/api/docs` (when running the webui server)
+- **Prometheus Metrics**: `http://localhost:9090/api/docs` (when running prometheus_metrics.py)
+
+## OpenAPI Specifications
+
+- [WebUI API (YAML)](./openapi.yaml) - Kronos WebUI REST API
+- [WebUI API (JSON)](./openapi.json) - Kronos WebUI REST API (JSON format)
+- [Prometheus Metrics API](./prometheus_metrics.yaml) - Monitoring metrics endpoints
 
 ## Support
 

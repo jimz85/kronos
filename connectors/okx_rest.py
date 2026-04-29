@@ -15,7 +15,7 @@ Features:
 
 Usage:
     client = OKXRESTClient()
-    candles = client.get_candles("BTC-USDT", bar="1h", limit=100)
+    candles = client.get_candles("BTC-USDT", bar="1H", limit=100)
     positions = client.get_positions()
     balance = client.get_account_balance()
 
@@ -336,7 +336,7 @@ class OKXRESTClient:
     def get_candles(
         self,
         inst_id: str,
-        bar: str = "1h",
+        bar: str = "1H",
         limit: int = 100,
         after: Optional[str] = None,
         before: Optional[str] = None,
@@ -346,7 +346,7 @@ class OKXRESTClient:
 
         Args:
             inst_id: Instrument ID (e.g., "BTC-USDT", "ETH-USDT-SWAP")
-            bar: Timeframe (e.g., "1m", "5m", "1h", "4h", "1d")
+            bar: Timeframe (e.g., "1m", "5m", "1H", "4H", "1D")
             limit: Number of candles (max 300)
             after: Pagination cursor - get candles before this timestamp
             before: Pagination cursor - get candles after this timestamp
@@ -588,7 +588,7 @@ class OKXRESTClient:
 
     # ==================== Convenience Methods ====================
 
-    def get_last_candle(self, inst_id: str, bar: str = "1h") -> Optional[dict]:
+    def get_last_candle(self, inst_id: str, bar: str = "1H") -> Optional[dict]:
         """Get the most recent candle for an instrument."""
         candles = self.get_candles(inst_id, bar=bar, limit=1)
         return candles[0] if candles else None

@@ -1,0 +1,31 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # Kronos Prometheus Metrics
+  - job_name: 'kronos-metrics'
+    static_configs:
+      - targets: ['host.docker.internal:9090']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  # Kronos Health Watchdog
+  - job_name: 'kronos-health'
+    static_configs:
+      - targets: ['host.docker.internal:9091']
+    metrics_path: /health
+    scrape_interval: 60s
+
+  # Node Exporter (system metrics)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s

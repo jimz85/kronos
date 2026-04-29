@@ -5,6 +5,34 @@ All notable changes to the Kronos autonomous crypto trading system will be docum
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.0] - 2026-04-27
+
+### Added
+- **JSON Structured Logging**: Full JSON logging support with `get_json_logger()` function
+  - Machine-readable output for log aggregation systems (ELK, Loki, Datadog)
+  - Consistent timestamp format (ISO8601)
+  - Automatic exception info capture with full traceback
+  - Location info in debug mode (function, file, line)
+- **Log Rotation Enhancement**: TimedRotatingFileHandler for JSON logs
+  - Daily rotation at midnight (UTC)
+  - Configurable retention via `backup_count`
+  - UTC-based timestamps for consistent ordering
+- **Specialized Loggers**:
+  - `get_trade_logger()`: For trade events (signals, orders, positions, PnL)
+  - `get_audit_logger()`: For audit events (config changes, risk breaches, errors)
+- **Structured Fields Support**: Default fields injected into all JSON logs
+  - `app`: Application name
+  - `log_type`: Event category
+  - `version`: System version
+- **JSON Log Directory**: Logs stored in `logs/json/` for easy discovery
+
+### Changed
+- **Enhanced LogConfig**: Added JSON-specific settings
+  - `json_enabled`: Toggle JSON logging
+  - `json_log_dir`: JSON log directory path
+  - `json_app_name`: Application identifier in logs
+  - `default_fields`: Global structured fields
+
 ## [5.0.0] - 2026-04-26
 
 ### Added
@@ -59,7 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Status |
 |---------|------|--------|
-| 5.0.0 | 2026-04-26 | Current |
+| 5.1.0 | 2026-04-27 | Current |
+| 5.0.0 | 2026-04-26 | Previous |
 | 4.0.0 | Earlier | Legacy |
 
 ---
@@ -89,4 +118,4 @@ When contributing to Kronos:
 
 ---
 
-*Generated on: 2026-04-26*
+*Generated on: 2026-04-27*

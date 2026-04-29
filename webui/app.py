@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import plotly.utils
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
+from flasgger import Swagger, swag_from
 import sys
 import warnings
 import datetime
@@ -23,6 +24,44 @@ except ImportError:
 
 app = Flask(__name__)
 CORS(app)
+
+# Swagger configuration
+swagger_config = {
+    "headers": [],
+    "specs": [
+        {
+            "endpoint": 'apispec',
+            "route": '/apispec.json',
+            "rule_filter": lambda rule: True,
+            "model_filter": lambda tag: True,
+        }
+    ],
+    "static_url_path": "/flasgger_static",
+    "swagger_ui": True,
+    "specs_route": "/api/docs"
+}
+
+swagger_template = {
+    "info": {
+        "title": "Kronos WebUI API",
+        "description": "REST API for Kronos cryptocurrency trading system WebUI. Provides endpoints for model management, data loading, and financial predictions.",
+        "version": "5.0.0",
+        "contact": {
+            "name": "Kronos Support",
+            "email": "support@kronos.trade"
+        }
+    },
+    "basePath": "/",
+    "schemes": ["http", "https"],
+    "tags": [
+        {"name": "UI", "description": "Web interface endpoints"},
+        {"name": "Data", "description": "Data loading and management"},
+        {"name": "Prediction", "description": "Financial prediction endpoints"},
+        {"name": "Model", "description": "Kronos model management"}
+    ]
+}
+
+swagger = Swagger(app, config=swagger_config, template=swagger_template)
 
 # Global variables to store models
 tokenizer = None

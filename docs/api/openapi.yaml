@@ -1,0 +1,413 @@
+openapi: 3.0.3
+info:
+  title: Kronos WebUI API
+  description: |
+    REST API for Kronos cryptocurrency trading system WebUI. 
+    Provides endpoints for model management, data loading, and financial predictions.
+  version: 5.0.0
+  contact:
+    name: Kronos Support
+    email: support@kronos.trade
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:7070
+    description: Local development server
+
+tags:
+  - name: UI
+    description: Web interface endpoints
+  - name: Data
+    description: Data loading and management
+  - name: Prediction
+    description: Financial prediction endpoints
+  - name: Model
+    description: Kronos model management
+
+paths:
+  /:
+    get:
+      tags: [UI]
+      summary: Home page
+      description: Returns the main web interface HTML page
+      operationId: get_index
+      responses:
+        '200':
+          description: HTML page returned successfully
+
+  /api/data-files:
+    get:
+      tags: [Data]
+      summary: List available data files
+      description: |
+        Scans the data directory and returns a list of available CSV and Feather 
+        files for analysis.
+      operationId: get_data_files
+      responses:
+        '200':
+          description: List of available data files
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DataFile'
+
+  /api/load-data:
+    post:
+      tags: [Data]
+      summary: Load data file
+      description: |
+        Loads a specified data file and returns its metadata including time range, 
+        columns, and price statistics.
+      operationId: load_data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoadDataRequest'
+      responses:
+        '200':
+          description: Data loaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoadDataResponse'
+        '400':
+          description: Invalid file path or missing required columns
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/predict:
+    post:
+      tags: [Prediction]
+      summary: Perform financial prediction
+      description: |
+        Uses the Kronos model to generate financial predictions based on historical 
+        OHLCV data. Supports custom time windows and prediction parameters.
+      operationId: predict
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PredictRequest'
+      responses:
+        '200':
+          description: Prediction completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictResponse'
+        '400':
+          description: Invalid request parameters or insufficient data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Prediction failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/load-model:
+    post:
+      tags: [Model]
+      summary: Load Kronos model
+      description: |
+        Loads a specified Kronos model and tokenizer for prediction. Models are 
+        downloaded from HuggingFace if not cached locally.
+      operationId: load_model
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoadModelRequest'
+      responses:
+        '200':
+          description: Model loaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoadModelResponse'
+        '400':
+          description: Invalid model key or model library not available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Model loading failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/available-models:
+    get:
+      tags: [Model]
+      summary: List available models
+      description: |
+        Returns a list of all available Kronos model configurations with their 
+        parameters and descriptions.
+      operationId: get_available_models
+      responses:
+        '200':
+          description: Available models list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailableModelsResponse'
+
+  /api/model-status:
+    get:
+      tags: [Model]
+      summary: Get model status
+      description: |
+        Returns the current status of the Kronos model including whether it's 
+        loaded and on which device.
+      operationId: get_model_status
+      responses:
+        '200':
+          description: Model status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelStatusResponse'
+
+components:
+  schemas:
+    DataFile:
+      type: object
+      properties:
+        name:
+          type: string
+          description: File name
+        path:
+          type: string
+          description: Absolute file path
+        size:
+          type: string
+          description: Human-readable file size (KB or MB)
+
+    LoadDataRequest:
+      type: object
+      required:
+        - file_path
+      properties:
+        file_path:
+          type: string
+          description: Absolute path to the data file
+
+    LoadDataResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data_info:
+          $ref: '#/components/schemas/DataInfo'
+        message:
+          type: string
+
+    DataInfo:
+      type: object
+      properties:
+        rows:
+          type: integer
+          description: Number of rows in the dataset
+        columns:
+          type: array
+          items:
+            type: string
+          description: Column names
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+        price_range:
+          $ref: '#/components/schemas/PriceRange'
+        prediction_columns:
+          type: array
+          items:
+            type: string
+        timeframe:
+          type: string
+          description: Detected time frequency (e.g., '1 hours', '5 minutes')
+
+    PriceRange:
+      type: object
+      properties:
+        min:
+          type: number
+        max:
+          type: number
+
+    PredictRequest:
+      type: object
+      required:
+        - file_path
+      properties:
+        file_path:
+          type: string
+          description: Path to data file
+        lookback:
+          type: integer
+          default: 400
+          minimum: 10
+          maximum: 10000
+          description: Number of historical data points for input
+        pred_len:
+          type: integer
+          default: 120
+          minimum: 1
+          maximum: 1000
+          description: Number of future points to predict
+        temperature:
+          type: number
+          default: 1.0
+          minimum: 0.1
+          maximum: 2.0
+          description: Sampling temperature for prediction
+        top_p:
+          type: number
+          default: 0.9
+          minimum: 0.0
+          maximum: 1.0
+          description: Nucleus sampling parameter
+        sample_count:
+          type: integer
+          default: 1
+          minimum: 1
+          maximum: 10
+          description: Number of prediction samples to generate
+        start_date:
+          type: string
+          format: date-time
+          description: Custom start time for prediction window (optional)
+
+    PredictResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        prediction_type:
+          type: string
+        chart:
+          type: string
+          description: JSON-encoded Plotly chart
+        prediction_results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PredictionPoint'
+        actual_data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PredictionPoint'
+          description: Actual data for comparison (if available)
+        has_comparison:
+          type: boolean
+        message:
+          type: string
+
+    PredictionPoint:
+      type: object
+      properties:
+        timestamp:
+          type: string
+        open:
+          type: number
+        high:
+          type: number
+        low:
+          type: number
+        close:
+          type: number
+        volume:
+          type: number
+        amount:
+          type: number
+
+    LoadModelRequest:
+      type: object
+      properties:
+        model_key:
+          type: string
+          default: kronos-small
+          enum: [kronos-mini, kronos-small, kronos-base]
+          description: Model identifier
+        device:
+          type: string
+          default: cpu
+          enum: [cpu, cuda, mps]
+          description: Device to load model on
+
+    LoadModelResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        model_info:
+          $ref: '#/components/schemas/ModelInfo'
+
+    ModelInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        params:
+          type: string
+        context_length:
+          type: integer
+        description:
+          type: string
+
+    AvailableModelsResponse:
+      type: object
+      properties:
+        models:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ModelInfo'
+        model_available:
+          type: boolean
+          description: Whether Kronos model library is available
+
+    ModelStatusResponse:
+      type: object
+      properties:
+        available:
+          type: boolean
+        loaded:
+          type: boolean
+        message:
+          type: string
+        current_model:
+          type: object
+          properties:
+            name:
+              type: string
+            device:
+              type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string

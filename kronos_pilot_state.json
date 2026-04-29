@@ -1,0 +1,27 @@
+{
+  "last_report": {
+    "timestamp": "2026-04-28T16:02:08.932840",
+    "equity": 73104.28,
+    "total_upl": -107.46,
+    "positions": {
+      "DOGE": {
+        "side": "buy",
+        "size": 611,
+        "upl": 183.3,
+        "markPx": 0.0995
+      },
+      "BNB": {
+        "side": "buy",
+        "size": 324,
+        "upl": -15.23,
+        "markPx": 623.7
+      },
+      "SOL": {
+        "side": "buy",
+        "size": 118,
+        "upl": -275.53,
+        "markPx": 83.94
+      }
+    }
+  }
+}

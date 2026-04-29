@@ -1,0 +1,294 @@
+openapi: 3.0.3
+info:
+  title: Kronos Prometheus Metrics API
+  description: |
+    Prometheus metrics exporter for Kronos trading system.
+    Exposes Prometheus-format metrics for Grafana dashboards and monitoring systems.
+  version: 1.0.0
+  contact:
+    name: Kronos Support
+    email: support@kronos.trade
+
+servers:
+  - url: http://localhost:9090
+    description: Prometheus exporter server
+
+tags:
+  - name: Metrics
+    description: Prometheus metrics endpoints
+  - name: Health
+    description: Health check endpoints
+  - name: Debug
+    description: Debug and utility endpoints
+
+paths:
+  /metrics:
+    get:
+      tags: [Metrics]
+      summary: Prometheus metrics endpoint
+      description: |
+        Returns all metrics in Prometheus text format for scraping by Prometheus server.
+        Includes trade metrics, equity, positions, circuit breaker state, and system health.
+      operationId: get_metrics
+      responses:
+        '200':
+          description: Prometheus metrics in text format
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP kronos_equity_current Current account equity
+                  # TYPE kronos_equity_current gauge
+                  kronos_equity_current 10000.5
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Basic health check
+      description: Returns the health status of the metrics exporter service
+      operationId: health_check
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      description: Kubernetes liveness probe endpoint - returns OK if process is running
+      operationId: liveness_probe
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      description: Kubernetes readiness probe - returns OK if service can accept traffic
+      operationId: readiness_probe
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ready
+        '503':
+          description: Service not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: not ready
+
+  /health/details:
+    get:
+      tags: [Health]
+      summary: Detailed health status
+      description: Returns detailed health information including all subsystem statuses
+      operationId: detailed_health
+      responses:
+        '200':
+          description: Detailed health information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailedHealthResponse'
+
+  /metrics/positions:
+    get:
+      tags: [Metrics]
+      summary: Current positions data
+      description: Returns current open positions in JSON format for debugging
+      operationId: get_positions_metric
+      responses:
+        '200':
+          description: Current positions data
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/Position'
+
+  /metrics/circuit:
+    get:
+      tags: [Metrics]
+      summary: Circuit breaker state
+      description: Returns the current circuit breaker state including consecutive losses
+      operationId: get_circuit_state
+      responses:
+        '200':
+          description: Circuit breaker state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CircuitState'
+
+  /metrics/trades:
+    get:
+      tags: [Metrics]
+      summary: Recent trades
+      description: Returns the 20 most recent trades for debugging
+      operationId: get_recent_trades
+      responses:
+        '200':
+          description: Recent trades list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Trade'
+
+  /reload:
+    post:
+      tags: [Debug]
+      summary: Force metrics reload
+      description: Forces a complete reload of all metrics from data sources
+      operationId: reload_metrics
+      responses:
+        '200':
+          description: Metrics reloaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: reloaded
+                  timestamp:
+                    type: number
+                    example: 1714266600.123
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: healthy
+        timestamp:
+          type: string
+          format: date-time
+          example: "2024-04-27T20:30:00+08:00"
+        service:
+          type: string
+          example: kronos-prometheus-exporter
+
+    DetailedHealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        service:
+          type: string
+        subsystems:
+          type: object
+          properties:
+            data_provider:
+              type: string
+            exchange_connection:
+              type: string
+            circuit_breaker:
+              type: string
+            treasury:
+              type: string
+
+    Position:
+      type: object
+      properties:
+        coin:
+          type: string
+          description: Trading pair symbol
+        side:
+          type: string
+          enum: [long, short]
+        size:
+          type: number
+          description: Position size
+        entry:
+          type: number
+          description: Entry price
+        unrealized_pnl:
+          type: number
+          description: Current unrealized PnL
+        timestamp:
+          type: string
+          format: date-time
+
+    CircuitState:
+      type: object
+      properties:
+        consecutive_losses:
+          type: integer
+          description: Number of consecutive losing trades
+        last_outcome:
+          type: string
+          enum: [win, loss, failure, null]
+        is_tripped:
+          type: boolean
+          description: Whether circuit breaker has tripped
+        trip_reason:
+          type: string
+          description: Reason for tripping (if tripped)
+        trip_time:
+          type: string
+          format: date-time
+        losses_log:
+          type: array
+          items:
+            type: object
+          description: History of loss events
+
+    Trade:
+      type: object
+      properties:
+        trade_id:
+          type: string
+        coin:
+          type: string
+        side:
+          type: string
+          enum: [buy, sell]
+        quantity:
+          type: number
+        price:
+          type: number
+        pnl:
+          type: number
+        status:
+          type: string
+          enum: [OPEN, CLOSED, FAILED]
+        open_time:
+          type: string
+          format: date-time
+        close_time:
+          type: string
+          format: date-time

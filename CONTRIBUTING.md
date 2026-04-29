@@ -43,12 +43,6 @@ Kronos is an autonomous cryptocurrency trading system built with a 5-layer archi
   - Module docstring with description and key functions
   - Version information
 
-- **Logging**: Use the centralized logging system:
-  ```python
-  import logging
-  logger = logging.getLogger('kronos.module_name')
-  ```
-
 - **Path Handling**: Always use absolute paths:
   ```python
   from pathlib import Path
@@ -60,6 +54,149 @@ Kronos is an autonomous cryptocurrency trading system built with a 5-layer archi
   from kronos_utils import atomic_write_json
   atomic_write_json(state_file, new_state)
   ```
+
+### Logging Guidelines
+
+Kronos supports two logging modes: **standard text logging** and **JSON structured logging**.
+
+#### Standard Logging (Human-Readable)
+
+Use for general application logs, debugging, and console output:
+
+```python
+from core.logging_config import get_logger
+
+logger = get_logger('kronos.module_name')
+logger.info("Normal operation message")
+logger.warning("Warning condition - something needs attention")
+logger.error("Error condition - operation failed")
+logger.debug("Detailed debugging information")
+```
+
+#### JSON Structured Logging (Machine-Readable)
+
+Use for:
+- Trade events (signals, orders, positions)
+- Audit events (config changes, risk breaches)
+- Integration with log aggregation systems (ELK, Loki, Datadog)
+
+```python
+from core.logging_config import get_json_logger
+
+# General JSON logger
+logger = get_json_logger('kronos.module_name')
+
+# Specialized trade logger
+trade_logger = get_json_logger('kronos.trades', extra_fields={
+    'log_type': 'trade_event'
+})
+
+# Audit logger
+audit_logger = get_json_logger('kronos.audit', extra_fields={
+    'log_type': 'audit_event'
+})
+```
+
+##### JSON Log Output Example
+
+```python
+logger = get_json_logger('kronos.trades')
+logger.info("Signal generated", extra={
+    "coin": "BTC",
+    "side": "long",
+    "confidence": 0.85,
+    "price": 50000.0,
+    " timeframe": "1h"
+})
+```
+
+Output:
+```json
+{
+    "timestamp": "2026-04-27T20:30:00.000Z",
+    "level": "INFO",
+    "logger": "kronos.trades",
+    "message": "Signal generated",
+    "app": "kronos",
+    "log_type": "trade_event",
+    "coin": "BTC",
+    "side": "long",
+    "confidence": 0.85,
+    "price": 50000.0,
+    "timeframe": "1h"
+}
+```
+
+##### Using Specialized Loggers
+
+```python
+from core.logging_config import get_trade_logger, get_audit_logger
+
+# For trade events
+trade_logger = get_trade_logger()
+trade_logger.info("Order placed", extra={
+    "order_id": "abc123",
+    "inst_id": "BTC-USDT-SWAP",
+    "side": "buy",
+    "sz": 0.01,
+    "px": 50000.0
+})
+
+# For audit events
+audit_logger = get_audit_logger()
+audit_logger.warning("Risk limit approached", extra={
+    "hourly_loss_pct": 0.018,
+    "limit": 0.02,
+    "action": "circuit_breaker_warning"
+})
+```
+
+##### Best Practices
+
+1. **Use descriptive logger names**: Include module path
+   ```python
+   # Good
+   logger = get_logger('kronos.strategies.regime_classifier')
+   logger = get_json_logger('kronos.orders')
+
+   # Avoid
+   logger = get_logger('log')
+   ```
+
+2. **Include relevant context in extra fields**:
+   ```python
+   # Good
+   logger.info("Trade executed", extra={
+       "coin": "ETH",
+       "side": "long",
+       "size": 1.5,
+       "price": 3000.0,
+       "pnl_realized": 50.0
+   })
+
+   # Avoid - too generic
+   logger.info("Trade happened")
+   ```
+
+3. **Use appropriate log levels**:
+   - `DEBUG`: Detailed debugging info (not in production JSON logs by default)
+   - `INFO`: Normal operations, state changes
+   - `WARNING`: Attention needed, approaching limits
+   - `ERROR`: Operations that failed
+   - `CRITICAL`: System-level failures
+
+4. **Include exception tracebacks**:
+   ```python
+   try:
+       risky_operation()
+   except Exception as e:
+       logger.error(f"Operation failed: {e}", extra={
+           "operation": "order_placement",
+           "coin": "BTC"
+       })
+       # The JSON formatter automatically captures exc_info if present
+       raise
+   ```
 
 ### Architecture Principles
 
@@ -87,11 +224,13 @@ Kronos is an autonomous cryptocurrency trading system built with a 5-layer archi
    - `feature/description`
    - `fix/issue-description`
    - `refactor/module-name`
+   - `logging/json-structured` (for logging improvements)
 
 2. **Commit Messages**: Use clear, descriptive messages:
    - `Add: new feature description`
    - `Fix: bug description`
    - `Refactor: module improvement`
+   - `Docs: update documentation`
 
 3. **Testing**:
    - Test in simulation mode first
@@ -102,6 +241,7 @@ Kronos is an autonomous cryptocurrency trading system built with a 5-layer archi
    - Update `CLAUDE.md` if introducing new patterns
    - Add docstrings to new functions
    - Update README if adding new features
+   - Add entries to CHANGELOG.md for notable changes
 
 ## Areas for Contribution
 
@@ -128,7 +268,7 @@ When reporting issues, include:
 - Python version
 - Kronos version (from `constants.py`)
 - OKX_FLAG setting
-- Error logs
+- Error logs (include JSON logs if available)
 - Steps to reproduce
 
 ## License

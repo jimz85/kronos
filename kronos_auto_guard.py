@@ -485,149 +485,45 @@ def execute_actions(actions, positions):
 
 # ============ 主守护逻辑 ============
 def guard_cycle():
-    logger.info(f"\n[{datetime.now().strftime('%H:%M:%S')}] === Kronos自动守护 ===")
+    """
+    Kronos全自动守护 - 每次运行完整决策+执行
 
-    # 0. 先同步真实持仓盈亏到熔断器（解决幽灵仓位导致的假熔断）
+    不再只是发飞书预警，而是：
+    1. 同步真实持仓盈亏到熔断器（修复幽灵仓位假阳性）
+    2. 调用 kronos_multi_coin.full_scan() 做 gemma4 中央决策
+    3. 自动执行（收紧SL/止盈/平仓/开仓）
+    4. 有实际操作才飞书通知，否则静默
+    """
+    logger.info(f"\n[{datetime.now().strftime('%H:%M:%S')}] === Kronos全自动守护 ===")
+
+    # ── Step 0: 同步真实持仓盈亏到熔断器 ──────────────────────────────
     sync_circuit_from_positions()
 
-    # 1. 检查熔断状态
+    # ── Step 1: 检查熔断状态 ─────────────────────────────────────────
     circuit_tripped, circuit_reason, circuit_state = check_circuit_breaker()
-
     if circuit_tripped:
-        logger.warning("🚨 熔断已触发！")
-        feishu_notify(
-            f"🚨 Kronos熔断触发\n"
-            f"原因: {circuit_reason}\n"
-            f"连续亏损: {circuit_state['consecutive_losses']}次\n"
-            f"禁止开新仓，需1笔盈利才能解锁"
-        )
+        logger.warning(f"🚨 熔断触发: {circuit_reason}")
+        feishu_notify(f"🚨 Kronos熔断触发 | {circuit_reason} | 禁止开新仓")
 
-    # 2. 分析持仓危险状态（返回positions用于后续执行）
-    positions, dangers = analyze_positions()
-
-    logger.info(f"持仓数: {len(positions) if positions else 0}, 危险项: {len(dangers)}")
-
-    # 3. 合并危险 + 熔断
-    all_warnings = [d for d in dangers if d['severity'] == 'danger']
-    all_warnings_warn = [d for d in dangers if d['severity'] == 'warn']
-
-    actions = []
-    executed = []
-
-    # 4. 快速规则判断
-    rule_actions = quick_ai_judgment(dangers, circuit_tripped)
-    actions.extend(rule_actions)
-
-    # 5. 如果有危险项 → 调用MiniMax深度审查
-    minimax_result = None
-    if all_warnings or circuit_tripped:
-        logger.warning("⚠️ 发现危险，启动MiniMax深度审查...")
-        feishu_notify(
-            f"🤖 Kronos自动守护\n"
-            f"检测到危险条件，正在分析...\n"
-            f"危险项: {len(all_warnings)}\n"
-            f"警告项: {len(all_warnings_warn)}"
-        )
-
-        positions_data = [
-            {
-                'coin': d['coin'],
-                'side': d['side'],
-                'size': d['size'],
-                'entry': d['entry'],
-                'current': d['current'],
-                'profit_pct': d['profit_pct'],
-                'sl_distance': d['sl_distance'],
-                'liq_distance': d['liq_distance'],
-                'timeout_pct': d['timeout_pct'],
-            }
-            for d in dangers
-        ]
-
-        minimax_result = minimax_review(positions_data, all_warnings, circuit_state)
-        logger.info(f"MiniMax审查结果:\n{minimax_result}")
-
-        # 6. 发送MiniMax审查结果到飞书
-        if minimax_result:
-            feishu_notify(f"🤖 MiniMax深度审查结果:\n\n{minimax_result[:1500]}")
-        else:
-            feishu_notify("🤖 MiniMax深度审查结果:\n\n⚠️ MiniMax API返回为空，跳过审查")
-
-        # 注：kronos_multi_coin.py每3分钟统一管理所有SL/TP操作（repair_sl_tp等）。
-        # 本函数只负责极度危险时的MiniMax审查+紧急平仓，不重复执行。
-
-    # ========== 极度危险：直接执行止损，不等judgment ==========
-    # SL距现价<1.5% 或 强平距<2% 或 超时>=100% → 立即市价平仓，不犹豫
-    ULTRA_DANGER_SL = 1.5  # %
-    ULTRA_DANGER_LIQ = 2.0  # %
-
-    # 先查一遍pending条件单，平仓时一起撤销
-    sl_tp_orders, _ = get_real_sl_tp_orders()
-
-    for d in dangers:
-        sl_d = d.get('sl_distance') or 999
-        liq_d = d.get('liq_distance') or 999
-        timeout_pct = d.get('timeout_pct') or 0
-
-        if sl_d < ULTRA_DANGER_SL or liq_d < ULTRA_DANGER_LIQ:
-            coin = d['coin']
-            reason_str = f'SL距{sl_d:.1f}%' if sl_d < ULTRA_DANGER_SL else ''
-            reason_str += f'强平距{liq_d:.1f}%' if liq_d < ULTRA_DANGER_LIQ else ''
-            logger.warning(f'🚨 极度危险！{coin} {reason_str}，直接市价平仓')
-            pos = positions.get(coin)
-            if pos:
-                side = pos['side']
-                size = pos['size']
-                mgn_mode = pos.get('mgnMode', 'isolated')  # 从持仓数据获取真实模式
-                # 模拟盘格式：close long = buy+posSide=long；close short = sell+posSide=short
-                if side == 'buy':
-                    close_side = 'buy'
-                    pos_side = 'long'
-                else:
-                    close_side = 'sell'
-                    pos_side = 'short'
-                # 1. 先撤销pending条件单
-                cancelled = cancel_orders_for_coin(coin, sl_tp_orders)
-                # 2. 市价平仓
-                body = {
-                    'instId': f'{coin}-USDT-SWAP',
-                    'tdMode': mgn_mode,
-                    'side': close_side,
-                    'ordType': 'market',
-                    'sz': str(int(size)),
-                    'posSide': pos_side,
-                    'reduceOnly': True,
-                }
-                r = _req('POST', '/api/v5/trade/order', json.dumps(body))
-                if r.get('code') == '0':
-                    msg = f'🚨 极度危险！{coin} 市价强平 | {reason_str}'
-                    feishu_notify(msg)
-                    executed.append(msg)
-                    logger.info(f'✅ {coin} 市价强平成功')
-                else:
-                    logger.error(f'❌ {coin} 强平失败: {r.get("msg")}')
-
-    # 8. 收紧SL（仅限ULTRA_DANGER时由kronos_multi_coin统一处理）
-    # kronos_auto_guard = 紧急平仓唯一权威，SL/TP管理全归kronos_multi_coin
-    # 禁止在此执行tighten_sl/place_sl，防止破坏OCO订单
-    # kronos_multi_coin每3分钟扫描，会自动处理所有SL/TP收紧逻辑
-
-    # 8. 汇总通知
-    if executed:
-        feishu_notify(
-            f"✅ Kronos自动守护执行完毕\n"
-            f"执行项: {len(executed)}\n"
-            f"{' | '.join(executed[:5])}"
-        )
-    else:
-        logger.info("✅ 静默 (无危险条件)")
+    # ── Step 2: 全自动决策+执行（kronos_multi_coin gemma4中央决策）────
+    # 延迟导入避免循环依赖
+    from kronos_multi_coin import full_scan as _full_scan
+    try:
+        result = _full_scan(notify=True)
+        executed = True
+        logger.info("✅ full_scan执行完毕")
+    except Exception as e:
+        logger.error(f"❌ full_scan异常: {e}")
+        import traceback
+        traceback.print_exc()
+        feishu_notify(f"🚨 Kronos全自动守护异常: {e}")
+        executed = False
+        result = None
 
     return {
         'circuit_tripped': circuit_tripped,
-        'dangers': len(all_warnings),
-        'warnings': len(all_warnings_warn),
+        'autonomous_scan': result,
         'executed': executed,
-        'minimax': minimax_result[:500] if minimax_result else None,
     }
 
 # ============ 主入口 ============
