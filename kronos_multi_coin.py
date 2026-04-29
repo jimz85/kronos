@@ -1980,16 +1980,17 @@ def decide_for_position(coin, pos, algos, md):
     except Exception:
         oversized_note = ''
 
-    pnl_pct = (price - entry) / entry * 100 if side == 'long' else (entry - price) / price * 100
+    pnl_pct = (price - entry) / entry * 100 if side == 'long' else (entry - price) / entry * 100
 
     sl_entry = algos.get('sl')
     tp_entry = (algos.get('tp') or [None])[0] if algos.get('tp') else None
     sl_price = sl_entry['price'] if sl_entry else None
     tp_price = tp_entry['price'] if tp_entry else None
-    sl_dist = (price - sl_price) / price * 100 if sl_price and side == 'long' else \
-              (sl_price - price) / price * 100 if sl_price and side == 'short' else 99
-    tp_dist = (tp_price - price) / price * 100 if tp_price and side == 'long' else \
-              (price - tp_price) / price * 100 if tp_price and side == 'short' else 99
+    # SL/TP距离用entry作分母（标准化，与实际盈亏计算一致）
+    sl_dist = (price - sl_price) / entry * 100 if sl_price and side == 'long' else \
+              (sl_price - price) / entry * 100 if sl_price and side == 'short' else 99
+    tp_dist = (tp_price - price) / entry * 100 if tp_price and side == 'long' else \
+              (price - tp_price) / entry * 100 if tp_price and side == 'short' else 99
 
     pos_state = get_position_state(coin)
     stage = pos_state.get('stage', 0)
@@ -2031,6 +2032,8 @@ def decide_for_position(coin, pos, algos, md):
             new_tp = round(entry * (1 + tp_pct_dynamic), 4) if need_tp else tp_price
         else:
             new_sl = round(entry * (1 + sl_pct_dynamic), 4) if need_sl else sl_price
+            # SHORT的TP必须在entry下方（做空止盈=价格下跌=TP<entry）
+            # TP距entry的比例 = tp_pct_dynamic，entry下方 → entry * (1 - tp_pct_dynamic)
             new_tp = round(entry * (1 - tp_pct_dynamic), 4) if need_tp else tp_price
         action = 'repair_sl_tp'
         urgency = 9  # 高优先级
@@ -2104,7 +2107,8 @@ def decide_for_position(coin, pos, algos, md):
             if sl_price is None or trailing_sl > sl_price:
                 return 'trailing_sl', 8, f'浮盈{pnl_pct:.1f}%→追踪SL={trailing_sl}(锁{lock_pct:.1%},ADX={adx:.0f})' + oversized_note, False, None, None
         else:
-            trailing_sl = round(entry * (1 - lock_pct), 4)
+            # SHORT追踪SL: 用 price * (1 - lock_pct)，随价格下跌而下降，但不低于entry
+            trailing_sl = round(max(entry, price * (1 - lock_pct)), 4)
             if sl_price is None or trailing_sl < sl_price:
                 return 'trailing_sl', 8, f'浮盈{pnl_pct:.1f}%→追踪SL={trailing_sl}(锁{lock_pct:.1%},ADX={adx:.0f})' + oversized_note, False, None, None
 
@@ -2119,11 +2123,12 @@ def decide_for_position(coin, pos, algos, md):
         if pnl_pct > partial_trigger_pct * 100 and (rsi_peak or (0 < tp_dist < tp_pct_dynamic * 5)):
             return tp_stage['trigger'], 7, f'浮盈{pnl_pct:.1f}% {tp_stage["label"]}(RSI={rsi:.0f} ADX={adx:.0f})' + oversized_note, False, None, None
 
-    # P3.5: RSI极端超买 + 弱趋势 = 熊市反弹止盈（最高优先级！）
-    # RSI>=75 + ADX<30 → 熊市反弹结束信号，无论盈亏立即止盈
+    # P3.5: RSI极端超买 + 弱趋势 = 熊市反弹止盈（仅LONG）
+    # RSI>=75 + ADX<30 → 熊市反弹结束信号，仅对LONG有效
     # 核心逻辑：熊市(空头)中RSI>75是典型的反弹结束点，不是继续持有的理由
     # 此判断优先于P4收紧SL/P3分批止盈，因为RSI极端超买比SL距离更重要
-    if rsi >= 75 and adx < 30:
+    # 注意：对SHORT无效！SHORT时RSI高反而可能是有利信号（价格可能回落）
+    if side == 'long' and rsi >= 75 and adx < 30:
         action_taken = 'force_close' if pnl_pct <= 0 else 'partial_profit'
         urgency_level = 8 if pnl_pct <= 0 else 7
         reason_str = f'RSI极端({rsi:.0f}超买)+弱趋势(ADX={adx:.0f})，熊市反弹结束，止盈出局' if pnl_pct > 0 else f'RSI({rsi:.0f}超买)+ADX({adx:.0f})，熊市反弹结束，强制退出'
