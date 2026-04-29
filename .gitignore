@@ -45,3 +45,4 @@ kronos_heartbeat.json
 *.parquet
 *.pkl
 .cooldown.json
+data/trade_journal.jsonl
