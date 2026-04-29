@@ -847,7 +847,16 @@ def get_real_positions(include_closed=False):
             if size <= 0 and not include_closed:
                 continue
 
-            side = pos.get('side', 'buy').lower()
+            # 优先使用 posSide（position direction: long/short），fallback 到 side（order direction: buy/sell）
+            # OKX API: posSide 是持仓方向，side 是开仓订单方向。部分仓位（如OCO开仓）没有 side 字段
+            pos_side = pos.get('posSide', '').lower()
+            order_side = pos.get('side', '').lower()
+            if pos_side in ('long', 'short'):
+                side = pos_side
+            elif order_side in ('buy', 'sell'):
+                side = order_side
+            else:
+                side = 'buy'  # 默认做多
             # BNB BUG FIX (2026-04-26): 用API的actual margin而非公式估算
             # 公式 pos_value/lever 在BNB上差100倍(入场价vs标记价单位问题)
             # API实际: BNB margin=$678 vs 公式=$68K; SOL margin=$3394 vs 公式=$3390(正确)
