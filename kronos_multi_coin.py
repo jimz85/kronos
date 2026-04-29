@@ -323,6 +323,54 @@ def _req(method, path, body=''):
         kwargs['data'] = body
     return r(url, **kwargs).json()
 
+# ========== 交易日志 (Journal) ==========
+JOURNAL_PATH = Path.home() / 'kronos' / 'data' / 'trade_journal.jsonl'
+
+def log_trade_journal(
+    action, coin, side, size,
+    entry_price=None, exit_price=None,
+    pnl=None, pnl_pct=None,
+    reason='', sl_before=None, sl_after=None,
+    tp_before=None, tp_after=None,
+    algos_before=None, algos_after=None,
+    equity=None, market=None,
+    gemma_decision=None, rule_decision=None,
+):
+    """Append a trade journal entry to ~/kronos/data/trade_journal.jsonl (one JSON per line).
+    
+    Journal write happens AFTER successful API confirmation.
+    If the journal write fails (exception), log the error but don't raise.
+    """
+    entry = {
+        'ts': datetime.utcnow().isoformat() + 'Z',
+        'action': action,
+        'coin': coin,
+        'side': side,
+        'size': size,
+        'entry_price': entry_price,
+        'exit_price': exit_price,
+        'pnl': pnl,
+        'pnl_pct': pnl_pct,
+        'reason': reason,
+        'sl_before': sl_before,
+        'sl_after': sl_after,
+        'tp_before': tp_before,
+        'tp_after': tp_after,
+        'algos_before': algos_before,
+        'algos_after': algos_after,
+        'equity': equity,
+        'market': market,
+        'gemma_decision': gemma_decision,
+        'rule_decision': rule_decision,
+    }
+    try:
+        JOURNAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(JOURNAL_PATH, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+            f.flush()
+    except Exception as e:
+        print(f"  ⚠️ Journal write failed: {e}")
+
 # ========== 持仓操作 ==========
 
 def get_all_positions():
@@ -3475,10 +3523,20 @@ def full_scan(notify=True):
         if dec['urgency'] >= 9:  # urgency 9-10 = 强制平仓
             pos = dec['pos']
             instId = f'{coin}-USDT-SWAP'
+            algos = dec['algos']
+            md = dec['md']
             ok, msg = close_position(instId, pos['side'], pos['pos'])
             print(f"  🚨 强制平仓: {coin} (U={dec['urgency']}) | {msg}")
             if ok:
                 close_paper_trade(coin, pos['side'], f'规则引擎U{dec["urgency"]}强制平仓', None, 0)
+                log_trade_journal(
+                    action='force_close', coin=coin, side=pos.get('side', ''),
+                    size=pos.get('pos', 0), entry_price=pos.get('avgPx'),
+                    reason=dec.get('detail', ''), equity=equity,
+                    algos_before=algos, algos_after=None,
+                    market={'rsi': md.get('rsi_1h'), 'adx': md.get('adx_1h'), 'price': md.get('price')},
+                    gemma_decision=None, rule_decision=dec.get('detail', ''),
+                )
 
     if AUDIT_ONLY:
         print("  [审查模式，新开仓跳过]")
@@ -3497,16 +3555,34 @@ def full_scan(notify=True):
         for gcoin, gpos in gemma_target_positions.items():
             ginstId = f'{gcoin}-USDT-SWAP'
             galgos = get_pending_algos(ginstId)
+            gmd = get_market_data(gcoin, btc_dir, btc_regime)
             print(f"  🎯 gemma4优先级覆盖: {gcoin} {decision} | {reason[:60]}")
             if decision == 'force_close':
                 ok, msg = close_position(ginstId, gpos['side'], gpos['pos'])
                 print(f"  🚨 gemma4强制平仓: {gcoin} | {msg}")
                 if ok:
                     close_paper_trade(gcoin, gpos['side'], f'gemma4_force_close', None, 0)
+                    log_trade_journal(
+                        action='force_close', coin=gcoin, side=gpos.get('side', ''),
+                        size=gpos.get('pos', 0), entry_price=gpos.get('avgPx'),
+                        reason=f'gemma4_force_close: {reason}', equity=equity,
+                        algos_before=galgos, algos_after=None,
+                        market={'rsi': gmd.get('rsi_1h'), 'adx': gmd.get('adx_1h'), 'price': gmd.get('price')},
+                        gemma_decision=f'{decision} {reason}', rule_decision=None,
+                    )
             elif decision == 'close_half':
                 ratio = 0.5
                 ok, msg = close_partial(ginstId, gpos['side'], gpos['pos'], ratio)
                 print(f"  📊 gemma4平一半: {gcoin} | {msg}")
+                if ok:
+                    log_trade_journal(
+                        action='close_half', coin=gcoin, side=gpos.get('side', ''),
+                        size=int(gpos.get('pos', 0) * ratio), entry_price=gpos.get('avgPx'),
+                        reason=f'gemma4_close_half: {reason}', equity=equity,
+                        algos_before=galgos, algos_after=get_pending_algos(ginstId),
+                        market={'rsi': gmd.get('rsi_1h'), 'adx': gmd.get('adx_1h'), 'price': gmd.get('price')},
+                        gemma_decision=f'{decision} {reason}', rule_decision=None,
+                    )
             elif decision == 'tighten_sl':
                 # 收紧SL：当前SL收紧20%
                 gsl = galgos.get('sl', {}).get('price') if galgos.get('sl') else None
@@ -3523,6 +3599,16 @@ def full_scan(notify=True):
                     if algo_id:
                         ok2, msg2 = amend_sl(ginstId, algo_id, new_sl)
                         print(f"  🔵 gemma4收紧SL: {gcoin} {gsl}→{new_sl} | {msg2}")
+                        if ok2:
+                            log_trade_journal(
+                                action='tighten_sl', coin=gcoin, side=gpos.get('side', ''),
+                                size=gpos.get('pos', 0),
+                                reason=f'gemma4_tighten_sl: {reason}', equity=equity,
+                                sl_before=gsl, sl_after=new_sl,
+                                algos_before=galgos, algos_after=get_pending_algos(ginstId),
+                                market={'rsi': gmd.get('rsi_1h'), 'adx': gmd.get('adx_1h'), 'price': gmd.get('price')},
+                                gemma_decision=f'{decision} {reason}', rule_decision=None,
+                            )
                     else:
                         print(f"  🔵 gemma4收紧SL: {gcoin} {gsl}→{new_sl}（无旧algoId，跳过amend，直接place新SL）")
                         ok2, msg2 = place_sl(ginstId, gpos['side'], gpos['pos'], new_sl)
@@ -3561,6 +3647,14 @@ def full_scan(notify=True):
             print(f"  🚨 强制止损: {coin} | {msg}")
             if ok:
                 close_paper_trade(coin, raw_side, 'force_close', None, 0)
+                log_trade_journal(
+                    action='force_close', coin=coin, side=side,
+                    size=pos.get('pos', 0), entry_price=pos.get('avgPx'),
+                    reason=dec.get('detail', ''), equity=equity,
+                    algos_before=algos, algos_after=None,
+                    market={'rsi': md.get('rsi_1h'), 'adx': md.get('adx_1h'), 'price': md.get('price')},
+                    gemma_decision=None, rule_decision=dec.get('detail', ''),
+                )
 
         elif action == 'repair_sl_tp':
             new_sl = dec['new_sl']
@@ -3603,6 +3697,9 @@ def full_scan(notify=True):
                     print(f"  ❌ 修复失败: {coin}")
                 continue  # skip to next coin
             sl_data = algos.get('sl')
+            tp_data = (algos.get('tp') or [None])[0] if algos.get('tp') else None
+            sl_before = sl_data.get('price') if sl_data else None
+            tp_before = tp_data.get('price') if tp_data else None
             old_sl_id = sl_data.get('algoId') if sl_data else None
             if old_sl_id:
                 cancel_algos(instId, [old_sl_id])
@@ -3627,6 +3724,15 @@ def full_scan(notify=True):
                     print(f"  🔴 验证失败: {coin} SL/TP仍未挂上!")
                 else:
                     print(f"  ✅ 验证通过: {coin} SL/TP已挂")
+                    log_trade_journal(
+                        action='repair_sl_tp', coin=coin, side=side,
+                        size=sz, reason=dec.get('detail', ''), equity=equity,
+                        sl_before=sl_before, sl_after=new_sl,
+                        tp_before=tp_before, tp_after=new_tp,
+                        algos_before=algos, algos_after=verify_algos,
+                        market={'rsi': md.get('rsi_1h'), 'adx': md.get('adx_1h'), 'price': md.get('price')},
+                        gemma_decision=None, rule_decision=dec.get('detail', ''),
+                    )
             else:
                 print(f"  ❌ 修复失败: {coin}")
 
@@ -3635,6 +3741,14 @@ def full_scan(notify=True):
             print(f"  ✅ 平仓: {coin} | {msg}")
             if ok:
                 close_paper_trade(coin, raw_side, '规则引擎平仓', None, 0)
+                log_trade_journal(
+                    action='close', coin=coin, side=side,
+                    size=pos.get('pos', 0), entry_price=pos.get('avgPx'),
+                    reason=dec.get('detail', ''), equity=equity,
+                    algos_before=algos, algos_after=None,
+                    market={'rsi': md.get('rsi_1h'), 'adx': md.get('adx_1h'), 'price': md.get('price')},
+                    gemma_decision=None, rule_decision=dec.get('detail', ''),
+                )
 
         elif action == 'trailing_sl':
             if not algos:
@@ -3648,6 +3762,15 @@ def full_scan(notify=True):
             if sl_algo_id and new_sl and new_sl != old_sl:
                 ok, msg = amend_sl(instId, sl_algo_id, new_sl)
                 print(f"  📈 追踪SL: {coin} {old_sl}→{new_sl} | {msg}")
+                if ok:
+                    log_trade_journal(
+                        action='trailing_sl', coin=coin, side=side,
+                        size=pos.get('pos', 0), reason=dec.get('detail', ''), equity=equity,
+                        sl_before=old_sl, sl_after=new_sl,
+                        algos_before=algos, algos_after=get_pending_algos(instId),
+                        market={'rsi': md.get('rsi_1h'), 'adx': md.get('adx_1h'), 'price': md.get('price')},
+                        gemma_decision=None, rule_decision=dec.get('detail', ''),
+                    )
 
         elif action == 'tighten_sl':
             # P0 Fix: algos dict is always truthy but sl may be None
@@ -3660,6 +3783,15 @@ def full_scan(notify=True):
             if sl_algo_id and new_sl:
                 ok, msg = amend_sl(instId, sl_algo_id, new_sl)
                 print(f"  🔒 收紧SL: {coin}→{new_sl} | {msg}")
+                if ok:
+                    log_trade_journal(
+                        action='tighten_sl', coin=coin, side=side,
+                        size=pos.get('pos', 0), reason=dec.get('detail', ''), equity=equity,
+                        sl_before=sl_data.get('price'), sl_after=new_sl,
+                        algos_before=algos, algos_after=get_pending_algos(instId),
+                        market={'rsi': md.get('rsi_1h'), 'adx': md.get('adx_1h'), 'price': md.get('price')},
+                        gemma_decision=None, rule_decision=dec.get('detail', ''),
+                    )
 
         elif action == 'partial_profit':
             # RSI>=75超买+弱趋势熊市 → 止盈50% + 收紧SL保本
@@ -3668,6 +3800,15 @@ def full_scan(notify=True):
             ok, msg = close_partial(instId, side, sz, 0.5)
             print(f"  💰 部分止盈: {coin} {sz_half}张({sz_half}/{sz}) | {msg}")
             if ok:
+                # Journal for partial profit close
+                log_trade_journal(
+                    action='partial_profit', coin=coin, side=side,
+                    size=sz_half, entry_price=pos.get('avgPx'),
+                    reason=dec.get('detail', ''), equity=equity,
+                    algos_before=algos, algos_after=get_pending_algos(instId),
+                    market={'rsi': md.get('rsi_1h'), 'adx': md.get('adx_1h'), 'price': md.get('price')},
+                    gemma_decision=None, rule_decision=dec.get('detail', ''),
+                )
                 # 收紧剩余50% SL到保本线
                 sl_data = algos.get('sl')
                 sl_algo_id = sl_data.get('algoId') if sl_data else None
@@ -3687,6 +3828,14 @@ def full_scan(notify=True):
             print(f"  💰 {action}: {coin} | {msg}")
             if ok:
                 close_paper_trade(coin, raw_side, f'{action}_止盈', None, 0)
+                log_trade_journal(
+                    action=action, coin=coin, side=side,
+                    size=pos.get('pos', 0), entry_price=pos.get('avgPx'),
+                    reason=dec.get('detail', ''), equity=equity,
+                    algos_before=algos, algos_after=None,
+                    market={'rsi': md.get('rsi_1h'), 'adx': md.get('adx_1h'), 'price': md.get('price')},
+                    gemma_decision=None, rule_decision=dec.get('detail', ''),
+                )
 
     # ── 新开仓：仅在熔断通过 + 有空余仓位时由gemma4决定 ──
     if decision in ('open_long', 'open_short') and treasury_ok and len(positions) < MAX_POSITIONS and not AUDIT_ONLY:
@@ -3814,6 +3963,17 @@ def full_scan(notify=True):
                                     print(f"  🔴 补救失败: {coin} 无保护持仓!")
                             else:
                                 print(f"  ✅ SL/TP验证: {'OCO' if has_oco else 'conditional'} 已挂")
+                            # Journal for open position
+                            log_trade_journal(
+                                action=decision, coin=coin, side=side,
+                                size=sz, entry_price=price,
+                                reason=reason_str, equity=equity,
+                                sl_before=None, sl_after=sl,
+                                tp_before=None, tp_after=tp,
+                                algos_before=None, algos_after=algos,
+                                market={'rsi': md.get('rsi_1h') or md.get('rsi'), 'adx': md.get('adx_1h') or md.get('adx'), 'price': price},
+                                gemma_decision=f'{decision} {reason}', rule_decision=None,
+                            )
                         if ok:
                             save_position_state(coin, {'stage': 0, 'sold_ratio': 0.0, 'direction': direction, 'leverage': lev})
                             # P1 Fix: 保存完整元数据到paper_trades（journal IC计算需要）
