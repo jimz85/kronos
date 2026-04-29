@@ -420,10 +420,15 @@ def get_account_equity():
 
 def close_position(instId, side, sz):
     """市价全平。reduceOnly=True防止反向开仓。
-    
+
+    P0 Fix: side参数统一支持'long'/'short'(内部格式)和'buy'/'sell'(OKX格式)。
     幂等：持仓已平则返回成功(不报错)。
     平仓后自动清理该币种所有待触发OCO（无论平仓结果如何）。
     """
+    # P0 Fix: 统一OKX格式→内部格式
+    if side in ('buy', 'sell'):
+        side = 'long' if side == 'buy' else 'short'
+
     coin = instId.replace('-USDT-SWAP', '')
     # 幂等检查
     positions_data = get_all_positions()
@@ -551,10 +556,15 @@ def place_oco(instId, side, sz, slPrice, tpPrice):
 
 def place_sl(instId, side, sz, slPrice):
     """挂SL条件单(posSide=实际持仓方向)
-    
-    P0 Bug修复：挂单前先查该币是否有活跃OCO订单，有则跳过。
+
+    P0 Fix: side参数统一支持'long'/'short'(内部格式)和'buy'/'sell'(OKX格式)。
+    挂单前先查该币是否有活跃OCO订单，有则跳过。
     防止拆成conditional单破坏已有的OCO保护。
     """
+    # P0 Fix: 统一OKX格式→内部格式
+    if side in ('buy', 'sell'):
+        side = 'long' if side == 'buy' else 'short'
+
     # 幂等检查：OCO存在则跳过
     for ordType in ['oco', 'conditional']:
         try:
@@ -577,10 +587,15 @@ def place_sl(instId, side, sz, slPrice):
 
 def place_tp(instId, side, sz, tpPrice):
     """挂TP条件单(posSide=实际持仓方向)
-    
-    P0 Bug修复：挂单前先查该币是否有活跃OCO订单，有则跳过。
+
+    P0 Fix: side参数统一支持'long'/'short'(内部格式)和'buy'/'sell'(OKX格式)。
+    挂单前先查该币是否有活跃OCO订单，有则跳过。
     防止拆成conditional单破坏已有的OCO保护。
     """
+    # P0 Fix: 统一OKX格式→内部格式
+    if side in ('buy', 'sell'):
+        side = 'long' if side == 'buy' else 'short'
+
     # 幂等检查：OCO存在则跳过
     for ordType in ['oco', 'conditional']:
         try:
@@ -1868,7 +1883,12 @@ def decide_for_position(coin, pos, algos, md):
     """对已有持仓做出决策"""
     price = md['price']
     entry = pos['avgPx']
-    side = pos['side']
+    # P0 Fix: OKX返回'buy'/'sell'，但函数内判断用'long'/'short'
+    raw_side = pos['side']
+    if raw_side in ('buy', 'sell'):
+        side = 'long' if raw_side == 'buy' else 'short'
+    else:
+        side = raw_side
     sz = pos['pos']
 
     if not price or not entry:
@@ -2393,22 +2413,32 @@ BTC市场: {btc_regime}
 # ========== 执行层 ==========
 
 def execute_action(coin, action, pos, algos, md, equity, repair_sl=None, repair_tp=None):
-    """执行交易动作"""
+    """执行交易动作
+
+    P0 Fix: pos['side'] OKX格式('buy'/'sell') → 内部格式('long'/'short')
+    统一在入口转换，所有内部逻辑使用'long'/'short'。
+    """
     instId = f'{coin}-USDT-SWAP'
     price = md['price']
     results = []
+    # P0 Fix: 统一OKX→内部格式
+    raw_side = pos['side']
+    if raw_side in ('buy', 'sell'):
+        side = 'long' if raw_side == 'buy' else 'short'
+    else:
+        side = raw_side
 
     if action == 'repair_sl_tp':
         # 修复缺失的SL/TP：必须用OCO合并为1个订单(P0 Bug修复)
         cleanup_coin_algos(instId)
-        algo_id = place_oco(instId, pos['side'], pos['pos'], repair_sl, repair_tp)
+        algo_id = place_oco(instId, side, pos['pos'], repair_sl, repair_tp)
         if algo_id:
             results.append(('补OCO', True, f'SL={repair_sl} TP={repair_tp} [{algo_id[:8]}]'))
         else:
             results.append(('补OCO', False, f'失败 SL={repair_sl} TP={repair_tp}'))
 
     elif action == 'force_close' or action == 'close':
-        ok, r = close_position(instId, pos['side'], pos['pos'])
+        ok, r = close_position(instId, side, pos['pos'])
         results.append(('平仓', ok, f'{coin} {int(pos["pos"])}张'))
         # 平仓后清残余条件单
         cancelled = cleanup_coin_algos(instId)
@@ -2424,7 +2454,7 @@ def execute_action(coin, action, pos, algos, md, equity, repair_sl=None, repair_
             entry = pos.get('avgPx', price)
             atr_pct = md.get('atr_pct', 2.0)
             sl_pct_dynamic, _ = get_sl_tp_pct(coin, atr_pct)
-            new_sl = round(entry * (1 - sl_pct_dynamic), 4) if pos['side'] == 'long' else round(entry * (1 + sl_pct_dynamic), 4)
+            new_sl = round(entry * (1 - sl_pct_dynamic), 4) if side == 'long' else round(entry * (1 + sl_pct_dynamic), 4)
             ok, r = amend_sl(instId, sl_id, new_sl)
             results.append(('收紧SL', ok, f'→{new_sl}({sl_pct_dynamic:.1%})'))
 
@@ -2436,7 +2466,7 @@ def execute_action(coin, action, pos, algos, md, equity, repair_sl=None, repair_
             _, tp_pct_dynamic = get_sl_tp_pct(coin, atr_pct)
             lock_pct = tp_pct_dynamic * 0.25
             lock_pct = max(lock_pct, TRAIL_LOCK_PCT)
-            new_sl = round(entry * (1 + lock_pct), 4) if pos['side'] == 'long' else round(entry * (1 - lock_pct), 4)
+            new_sl = round(entry * (1 + lock_pct), 4) if side == 'long' else round(entry * (1 - lock_pct), 4)
             ok, r = amend_sl(instId, sl_id, new_sl)
             results.append(('追踪SL', ok, f'→{new_sl}(锁{lock_pct:.1%})'))
 
@@ -2445,7 +2475,7 @@ def execute_action(coin, action, pos, algos, md, equity, repair_sl=None, repair_
         # 剩余50%继续持有，但SL收紧到入场价+0.5%（保本线）
         close_ratio = 0.5
         sz_to_close = max(1, int(pos['pos'] * close_ratio))
-        ok, r = close_partial(instId, pos['side'], pos['pos'], close_ratio)
+        ok, r = close_partial(instId, side, pos['pos'], close_ratio)
         results.append(('部分止盈', ok, f'RSI超买平50%={sz_to_close}张'))
         if ok:
             # 收紧剩余50%的SL到保本线
@@ -2454,7 +2484,7 @@ def execute_action(coin, action, pos, algos, md, equity, repair_sl=None, repair_
             if sl_id and remaining_pos >= 1:
                 entry = pos.get('avgPx', price)
                 breakeven_sl = round(entry * 1.005, 4)  # 保本+0.5%
-                if pos['side'] == 'long':
+                if side == 'long':
                     new_sl = max(float(sl_id), breakeven_sl)  # 不降低已有SL
                 else:
                     new_sl = min(float(sl_id), breakeven_sl)
@@ -2465,7 +2495,7 @@ def execute_action(coin, action, pos, algos, md, equity, repair_sl=None, repair_
         stage_idx = int(action.split('_')[1]) - 1
         if stage_idx < len(TP_STAGES):
             stage = TP_STAGES[stage_idx]
-            ok, r = close_partial(instId, pos['side'], pos['pos'], stage['ratio'])
+            ok, r = close_partial(instId, side, pos['pos'], stage['ratio'])
             results.append(('分批止盈', ok, f'{stage["label"]} {stage["ratio"]*100:.0f}%={int(pos["pos"]*stage["ratio"])}张'))
             # 更新仓位状态
             pos_state = get_position_state(coin)
@@ -2480,11 +2510,11 @@ def execute_action(coin, action, pos, algos, md, equity, repair_sl=None, repair_
                 if tp_algo_ids:
                     cancel_algos(instId, tp_algo_ids)  # 只取消TP，不碰SL
                 new_sz = max(1, int(pos['pos'] * remaining))
-                new_id = place_tp(instId, pos['side'], new_sz, tp_price)  # 不再清SL
+                new_id = place_tp(instId, side, new_sz, tp_price)  # 不再清SL
                 results.append(('重挂TP', bool(new_id), f'剩余{int(remaining*100)}%={new_sz}张 @{tp_price}'))
 
     elif action == 'take_profit':
-        ok, r = close_position(instId, pos['side'], pos['pos'])
+        ok, r = close_position(instId, side, pos['pos'])
         results.append(('全止盈', ok, f'{coin} {int(pos["pos"])}张'))
         if ok:
             close_paper_trade(coin, pos['side'], 'take_profit全止盈', None, 0)
@@ -3486,12 +3516,18 @@ def full_scan(notify=True):
         pos = dec['pos']
         algos = dec['algos']
         md = dec['md']
+        # P0 Fix: 统一pos['side'] OKX格式→内部格式
+        raw_side = pos['side']
+        if raw_side in ('buy', 'sell'):
+            side = 'long' if raw_side == 'buy' else 'short'
+        else:
+            side = raw_side
 
         if action == 'force_close':
-            ok, msg = close_position(instId, pos['side'], pos['pos'])
+            ok, msg = close_position(instId, side, pos['pos'])
             print(f"  🚨 强制止损: {coin} | {msg}")
             if ok:
-                close_paper_trade(coin, pos['side'], 'force_close', None, 0)
+                close_paper_trade(coin, raw_side, 'force_close', None, 0)
 
         elif action == 'repair_sl_tp':
             new_sl = dec['new_sl']
@@ -3551,17 +3587,17 @@ def full_scan(notify=True):
                 print(f"  ❌ 修复失败: {coin}")
 
         elif action == 'close':
-            ok, msg = close_position(instId, pos['side'], pos['pos'])
+            ok, msg = close_position(instId, side, pos['pos'])
             print(f"  ✅ 平仓: {coin} | {msg}")
             if ok:
-                close_paper_trade(coin, pos['side'], '规则引擎平仓', None, 0)
+                close_paper_trade(coin, raw_side, '规则引擎平仓', None, 0)
 
         elif action == 'trailing_sl':
             if not algos:
                 print(f"  ⚠️ 追踪SL跳过: {coin}(无algo信息)")
                 continue  # skip to next coin
             entry = pos.get('avgPx', 0)
-            side = pos['side']
+            # side 已在上方统一转换
             old_sl = algos.get('sl', {}).get('price')
             new_sl = dec['new_sl']
             sl_algo_id = algos.get('sl', {}).get('algoId')
@@ -3585,7 +3621,7 @@ def full_scan(notify=True):
             # RSI>=75超买+弱趋势熊市 → 止盈50% + 收紧SL保本
             sz = pos['pos']
             sz_half = max(1, int(sz * 0.5))
-            ok, msg = close_partial(instId, pos['side'], sz, 0.5)
+            ok, msg = close_partial(instId, side, sz, 0.5)
             print(f"  💰 部分止盈: {coin} {sz_half}张({sz_half}/{sz}) | {msg}")
             if ok:
                 # 收紧剩余50% SL到保本线
@@ -3594,7 +3630,7 @@ def full_scan(notify=True):
                 entry = pos.get('avgPx', 0)
                 if sl_algo_id and entry:
                     breakeven_sl = round(entry * 1.005, 4)
-                    if pos['side'] == 'long':
+                    if side == 'long':
                         new_sl = max(breakeven_sl, float(sl_data.get('price', 0)))
                     else:
                         new_sl = min(breakeven_sl, float(sl_data.get('price', 999999)))
@@ -3603,10 +3639,10 @@ def full_scan(notify=True):
 
         elif action in ('take_profit', 'tp1', 'tp2', 'tp3'):
             # 分批止盈
-            ok, msg = close_position(instId, pos['side'], pos['pos'])
+            ok, msg = close_position(instId, side, pos['pos'])
             print(f"  💰 {action}: {coin} | {msg}")
             if ok:
-                close_paper_trade(coin, pos['side'], f'{action}_止盈', None, 0)
+                close_paper_trade(coin, raw_side, f'{action}_止盈', None, 0)
 
     # ── 新开仓：仅在熔断通过 + 有空余仓位时由gemma4决定 ──
     if decision in ('open_long', 'open_short') and treasury_ok and len(positions) < MAX_POSITIONS and not AUDIT_ONLY:
