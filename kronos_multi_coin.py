@@ -543,6 +543,22 @@ def place_oco(instId, side, sz, slPrice, tpPrice):
     # 做空(sell/short)：SL > 当前价，TP < 当前价
     # 如果价格方向错误，打印警告并交换
     # （这说明调用方计算的价格本身就是错的，需要修复调用方）
+    try:
+        cur_price = float(get_price(instId.replace('-USDT-SWAP', '')))
+        if cur_price:
+            if pos_side_internal == 'long':
+                if slPrice >= cur_price:
+                    print(f"⚠️ P0警告: {instId} LONG OCO的SL={slPrice} >= 当前价={cur_price}，方向错误！")
+                if tpPrice <= cur_price:
+                    print(f"⚠️ P0警告: {instId} LONG OCO的TP={tpPrice} <= 当前价={cur_price}，方向错误！")
+            else:  # short
+                if slPrice <= cur_price:
+                    print(f"⚠️ P0警告: {instId} SHORT OCO的SL={slPrice} <= 当前价={cur_price}，方向错误！")
+                if tpPrice >= cur_price:
+                    print(f"⚠️ P0警告: {instId} SHORT OCO的TP={tpPrice} >= 当前价={cur_price}，方向错误！")
+    except:
+        pass  # 价格获取失败时不阻止下单
+
     body = json.dumps({
         'instId': instId, 'tdMode': 'isolated', 'side': close_side,
         'ordType': 'oco', 'sz': str(int(sz)), 'reduceOnly': True, 'posSide': pos_side_internal,
@@ -1979,7 +1995,7 @@ def decide_for_position(coin, pos, algos, md):
     if pnl_pct < -5:
         return 'force_close', 10, f'亏损{pnl_pct:.1f}%>5%强制止损' + oversized_note, False, None, None
 
-    # P0.5: SL/TP参数偏差检查
+    # P0.5: SL/TP参数偏差检查 + OCO方向正确性检查
     # 注意：TP缺失在前面P0检测已处理，这里只检查参数偏差(需SL和TP都存在)
     if sl_price is not None and tp_price is not None:
         atr_pct = md.get('atr_pct', 2.0)
@@ -1993,8 +2009,21 @@ def decide_for_position(coin, pos, algos, md):
             actual_tp_pct = (entry - tp_price) / entry
         sl_deviation = abs(actual_sl_pct - sl_pct_dynamic) / sl_pct_dynamic
         tp_deviation = abs(actual_tp_pct - tp_pct_dynamic) / tp_pct_dynamic
+        
+        # P0 Fix: OCO方向正确性检查 - 如果方向已经正确，不需要重建
+        # 做多(buy/long)：SL < entry，TP > entry
+        # 做空(sell/short)：SL > entry，TP < entry
+        oco_direction_correct = True
+        if side == 'long':
+            if sl_price >= entry or tp_price <= entry:
+                oco_direction_correct = False
+        else:  # short
+            if sl_price <= entry or tp_price >= entry:
+                oco_direction_correct = False
+        
         # 偏差>20% → 触发修复建议(urgency=6，建议级)
-        if sl_deviation > 0.20:
+        # 但如果OCO方向已经正确，说明系统在工作，不需要重建
+        if sl_deviation > 0.20 and not oco_direction_correct:
             new_sl = round(entry * (1 - sl_pct_dynamic), 4) if side == 'long' else round(entry * (1 + sl_pct_dynamic), 4)
             new_tp = round(entry * (1 + tp_pct_dynamic), 4) if side == 'long' else round(entry * (1 - tp_pct_dynamic), 4)
             # 注意：紧急收紧可能立即触发止损，只建议不自动执行
@@ -3539,6 +3568,10 @@ def full_scan(notify=True):
             # P0 Fix: 如果new_sl/new_tp无效(比如tighten_sl被错误标记为repair_sl_tp)，跳过
             if not new_sl or not new_tp:
                 print(f"  ⚠️ repair_sl_tp跳过: {coin} new_sl={new_sl} new_tp={new_tp}(无效参数)")
+                continue
+            # P0 Fix: 如果没有活跃OCO(=持仓已平)，跳过不要重建
+            if not (algos.get('sl') or algos.get('tp') or algos.get('oco')):
+                print(f"  ⚠️ repair_sl_tp跳过: {coin}(无活跃OCO=已平仓)")
                 continue
             # 先取消旧的SL/TP
             # P0 Fix: algos is always a dict but may have no actual algo orders (all None/[]).
