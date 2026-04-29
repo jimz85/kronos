@@ -46,3 +46,4 @@ kronos_heartbeat.json
 *.pkl
 .cooldown.json
 data/trade_journal.jsonl
+decision_journal.jsonl
