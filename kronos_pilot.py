@@ -117,7 +117,7 @@ def get_okx_pos_mode():
             'OK-ACCESS-TIMESTAMP': ts,
             'OK-ACCESS-PASSPHRASE': OKX_PASSPHRASE,
             'Content-Type': 'application/json',
-            'x-simulated-trading': '1',
+            'x-simulated-trading': os.getenv('OKX_FLAG', '1'),
         }
         # P1 Fix: OKX API call now uses retry wrapper
         ok, resp, err = _okx_request_with_retry(
@@ -723,7 +723,7 @@ def okx_place_order(
             'OK-ACCESS-TIMESTAMP': ts,
             'OK-ACCESS-PASSPHRASE': OKX_PASSPHRASE,
             'Content-Type': 'application/json',
-            'x-simulated-trading': '1',  # 模拟盘Key路由到simulation环境
+            'x-simulated-trading': os.getenv('OKX_FLAG', '1'),  # 模拟盘Key路由到simulation环境
         }
 
         # P0 Fix: 使用重试包装器（幂等安全，网络失败时保守继续）
@@ -862,7 +862,7 @@ def _okx_market_close(instId: str, existing_side: str, size_contracts: int) -> b
             'OK-ACCESS-TIMESTAMP': ts,
             'OK-ACCESS-PASSPHRASE': OKX_PASSPHRASE,
             'Content-Type': 'application/json',
-            'x-simulated-trading': '1',
+            'x-simulated-trading': os.getenv('OKX_FLAG', '1'),
         }
         # P0 Fix: 市价平仓带重试（reduceOnly安全，重复平仓OKX返回0）
         ok, r, err = _okx_request_with_retry(
@@ -927,7 +927,7 @@ def _place_sl_tp_algo(
     h_chk = {
         'OK-ACCESS-KEY': OKX_API_KEY, 'OK-ACCESS-SIGN': sign_chk,
         'OK-ACCESS-TIMESTAMP': ts_chk, 'OK-ACCESS-PASSPHRASE': OKX_PASSPHRASE,
-        'Content-Type': 'application/json', 'x-simulated-trading': '1',
+        'Content-Type': 'application/json', 'x-simulated-trading': os.getenv('OKX_FLAG', '1'),
     }
     try:
         ok_chk, r_chk, err_chk = _okx_request_with_retry(
@@ -975,7 +975,7 @@ def _place_sl_tp_algo(
         'OK-ACCESS-TIMESTAMP': ts,
         'OK-ACCESS-PASSPHRASE': OKX_PASSPHRASE,
         'Content-Type': 'application/json',
-        'x-simulated-trading': '1',
+        'x-simulated-trading': os.getenv('OKX_FLAG', '1'),
     }
     # P0 Fix: OCO挂单使用重试包装器（幂等，重复挂单OKX会接受但只生效第一个）
     ok, r, err = _okx_request_with_retry(
@@ -1031,7 +1031,7 @@ def _get_position_entry_price(instId: str) -> float:
             'OK-ACCESS-TIMESTAMP': ts,
             'OK-ACCESS-PASSPHRASE': OKX_PASSPHRASE,
             'Content-Type': 'application/json',
-            'x-simulated-trading': '1',
+            'x-simulated-trading': os.getenv('OKX_FLAG', '1'),
         }
         ok, resp, err = _okx_request_with_retry(
             'GET',
@@ -1066,7 +1066,7 @@ def _set_leverage(instId, lev):
             'OK-ACCESS-TIMESTAMP': ts,
             'OK-ACCESS-PASSPHRASE': OKX_PASSPHRASE,
             'Content-Type': 'application/json',
-            'x-simulated-trading': '1',
+            'x-simulated-trading': os.getenv('OKX_FLAG', '1'),
         }
         ok, resp, err = _okx_request_with_retry(
             'POST',
@@ -1150,7 +1150,7 @@ def okx_close_position(coin, side, size_contracts, pos_side='long'):
             'OK-ACCESS-TIMESTAMP': ts,
             'OK-ACCESS-PASSPHRASE': OKX_PASSPHRASE,
             'Content-Type': 'application/json',
-            'x-simulated-trading': '1',
+            'x-simulated-trading': os.getenv('OKX_FLAG', '1'),
         }
 
         ok, resp, err = _okx_request_with_retry(

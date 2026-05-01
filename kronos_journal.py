@@ -47,7 +47,7 @@ def _req_okx(method, path, body=''):
         'OK-ACCESS-TIMESTAMP': ts,
         'OK-ACCESS-PASSPHRASE': phrase,
         'Content-Type': 'application/json',
-        'x-simulated-trading': '1',
+        'x-simulated-trading': os.getenv('OKX_FLAG', '1'),
     }
     url = 'https://www.okx.com' + path
     r = _requests.get(url, headers=headers, timeout=15) if method == 'GET' else \

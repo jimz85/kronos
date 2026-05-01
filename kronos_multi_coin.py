@@ -91,8 +91,17 @@ MIN_CONTRACTS = 10          # 最小仓位
 # 原值：kronos_multi_coin.py=0.5%, kronos_auto_guard.py=2.0%, kronos_active_judgment.py=1.0%
 SL_DANGER_PCT = 0.005  # 0.5% - 统一后的SL极度危险阈值
 
-# 币种列表
-ALL_COINS = ['AVAX', 'ETH', 'BTC', 'SOL', 'DOT', 'LINK', 'BNB', 'XRP']  # DOGE/ADA下架：WFO验证严重劣化(Sharpe负值)
+# 币种列表（动态读取coin_strategy_map.json，排除excluded=true的币种）
+# 见 _get_allowed_coins()
+ALL_COINS = []  # 不再硬编码，由 _get_allowed_coins() 动态生成
+
+def _get_allowed_coins():
+    """返回coin_strategy_map.json中未标记为excluded的币种列表"""
+    smap = get_coin_strategy_map()
+    if not smap:
+        # Fallback: 核心币种
+        return ['SOL', 'BNB', 'XRP', 'DOGE', 'ADA']
+    return sorted([s for s, c in smap.items() if not c.get('excluded', False)])
 
 # ========== 动态SL/TP配置(v2.0 | 2026-04-20)==========
 # 每个币种的历史最优止损距离转化为ATR倍数
@@ -1015,9 +1024,15 @@ def build_local_factor_context(candidates, positions, btc_price, btc_dir, btc_re
             'forbidden_actions': [],
             'strategic_hint': '无候选币种，观望',
             'emergency_level': 'none',
-            'data_quality': 'no_candidates',
-            'source': 'local',
-        }
+        'data_quality': 'no_candidates',
+        'source': 'local',
+        # 附加诊断数据（供gemma4使用）
+        '_btc_ma30': None,
+        '_btc_trend': 'neutral',
+        '_rsi_median': 50,
+        '_adx_median': 15,
+        '_atr_median': 50,
+    }
     
     # 1. BTC趋势判断
     btc_ma30 = None
@@ -3416,9 +3431,10 @@ def full_scan(notify=True):
     
     # ========== 阶段2：扫描所有候选币 ==========
     print(f"\n{'─'*40}")
-    print(f"【阶段2】机会扫描 ({len(ALL_COINS)}个币种)")
-    
-    coin_data_list = [get_market_data(coin, btc_dir, btc_regime) for coin in ALL_COINS]
+    allowed_coins = _get_allowed_coins()
+    print(f"【阶段2】机会扫描 ({len(allowed_coins)}个币种)")
+
+    coin_data_list = [get_market_data(coin, btc_dir, btc_regime) for coin in allowed_coins]
     ranked = rank_coins(coin_data_list, positions)
     
     print("  评分排名:")

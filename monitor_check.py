@@ -24,7 +24,7 @@ def req(method, path, body=''):
         'OK-ACCESS-TIMESTAMP': ts,
         'OK-ACCESS-PASSPHRASE': PASSPHRASE,
         'Content-Type': 'application/json',
-        'x-simulated-trading': '1',
+        'x-simulated-trading': os.getenv('OKX_FLAG', '1'),
     }
     url = 'https://www.okx.com' + path
     if method == 'GET':

@@ -85,7 +85,7 @@ _okx_ts_offset = None
 def _req_get(url, headers=None):
     try:
         import requests
-        h = {'User-Agent': 'Mozilla/5.0', 'x-simulated-trading': '1'}
+        h = {'User-Agent': 'Mozilla/5.0', 'x-simulated-trading': os.getenv('OKX_FLAG', '1')}
         if headers:
             h.update(headers)
         r = requests.get(url, headers=h, timeout=10)
@@ -107,7 +107,7 @@ def _okx_sign(method, path, body=''):
         'OK-ACCESS-TIMESTAMP': ts,
         'OK-ACCESS-PASSPHRASE': OKX_PASSPHRASE,
         'Content-Type': 'application/json',
-        'x-simulated-trading': '1',
+        'x-simulated-trading': os.getenv('OKX_FLAG', '1'),
     }
 
 def _req(method, path, body=''):

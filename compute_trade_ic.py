@@ -245,6 +245,35 @@ def main():
     tmp.replace(IC_WEIGHTS)
     print(f"\n✅ 已更新 {IC_WEIGHTS}")
 
+    # ---- 同步写入 factor_weights.json（kronos_pilot.py 使用）----
+    # 因子名映射：kronos_ic_weights → factor_weights
+    FACTOR_MAP = {
+        'RSI': 'rsi_inv',    # RSI高→做空信号 = rsi_inv强
+        'ADX': 'adx',        # 同名
+        'Vol': 'vol_ratio',  # 波动率比率
+    }
+    factor_path = Path.home() / '.hermes' / 'cron' / 'output' / 'factor_weights.json'
+    try:
+        factor_data = {
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'n_days': trade_count,
+            'weights': {},
+            'mean_ic': {},
+            'source': 'compute_trade_ic',
+            'synced_from': str(IC_WEIGHTS),
+        }
+        for k8s_name, pilot_name in FACTOR_MAP.items():
+            if k8s_name in new_weights:
+                factor_data['weights'][pilot_name] = round(new_weights[k8s_name], 4)
+                factor_data['mean_ic'][pilot_name] = round(new_weights[k8s_name], 4)
+        tmp = factor_path.with_suffix('.tmp')
+        with open(tmp, 'w') as f:
+            json.dump(factor_data, f, indent=2)
+        tmp.replace(factor_path)
+        print(f"✅ 已同步 {factor_path}")
+    except Exception as e:
+        print(f"  ⚠️ 同步factor_weights.json失败: {e}")
+
     # 8. 飞书通知
     try:
         msg = f"【IC权重反馈更新 {datetime.now().strftime('%m-%d %H:%M')}】\n"

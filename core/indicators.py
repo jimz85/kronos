@@ -5,6 +5,7 @@ Type-annotated technical indicators for cryptocurrency trading.
 """
 
 from __future__ import annotations
+from typing import Union
 
 import numpy as np
 import numpy.typing as npt
@@ -13,11 +14,11 @@ import pandas as pd
 
 # Type aliases for clarity
 PriceArray = npt.NDArray[np.floating]
-OHLCData = dict[str, list[float] | npt.NDArray[np.floating]]
+OHLCData = dict[str, Union[list[float], npt.NDArray[np.floating]]]
 
 
 def calc_rsi(
-    prices: PriceArray | list[float],
+    prices: Union[PriceArray, list[float]],
     period: int = 14,
 ) -> float:
     """
@@ -42,7 +43,7 @@ def calc_rsi(
 
 
 def calc_ma(
-    prices: PriceArray | list[float],
+    prices: Union[PriceArray, list[float]],
     period: int,
 ) -> float:
     """
@@ -60,7 +61,7 @@ def calc_ma(
 
 
 def calc_ema(
-    prices: PriceArray | list[float],
+    prices: Union[PriceArray, list[float]],
     period: int = 20,
 ) -> np.ndarray:
     """
@@ -83,9 +84,9 @@ def calc_ema(
 
 
 def calc_atr(
-    high: PriceArray | list[float],
-    low: PriceArray | list[float],
-    close: PriceArray | list[float],
+    high: Union[PriceArray, list[float]],
+    low: Union[PriceArray, list[float]],
+    close: Union[PriceArray, list[float]],
     period: int = 14,
 ) -> pd.Series:
     """
@@ -113,7 +114,7 @@ def calc_atr(
 
 
 def calc_bollinger(
-    prices: PriceArray | list[float],
+    prices: Union[PriceArray, list[float]],
     period: int = 20,
     std_mult: float = 2.0,
 ) -> tuple[pd.Series, pd.Series, pd.Series]:
@@ -138,7 +139,7 @@ def calc_bollinger(
 
 
 def calc_macd(
-    prices: PriceArray | list[float],
+    prices: Union[PriceArray, list[float]],
     fast: int = 12,
     slow: int = 26,
     signal: int = 9,
@@ -181,9 +182,9 @@ def calc_macd(
 
 
 def calc_adx(
-    high: PriceArray | list[float],
-    low: PriceArray | list[float],
-    close: PriceArray | list[float],
+    high: Union[PriceArray, list[float]],
+    low: Union[PriceArray, list[float]],
+    close: Union[PriceArray, list[float]],
     n: int = 14,
 ) -> pd.Series:
     """
@@ -221,9 +222,9 @@ def calc_adx(
 
 
 def calc_cci(
-    high: PriceArray | list[float],
-    low: PriceArray | list[float],
-    close: PriceArray | list[float],
+    high: Union[PriceArray, list[float]],
+    low: Union[PriceArray, list[float]],
+    close: Union[PriceArray, list[float]],
     period: int = 20,
 ) -> pd.Series:
     """
@@ -249,7 +250,7 @@ def calc_cci(
     return (typical_price - sma) / (0.015 * mean_deviation)
 
 
-def calculate_indicators(candles: list[dict] | dict) -> dict[str, float]:
+def calculate_indicators(candles: Union[list[dict], dict]) -> dict[str, float]:
     """
     Calculate all technical indicators from OHLCV candles.
 

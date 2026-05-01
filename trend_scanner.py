@@ -141,7 +141,7 @@ def okx_api(method, path, body=''):
     sig = base64.b64encode(mac.digest()).decode()
     h = {'OK-ACCESS-KEY': API_KEY, 'OK-ACCESS-SIGN': sig,
          'OK-ACCESS-TIMESTAMP': ts, 'OK-ACCESS-PASSPHRASE': PASSPHRASE,
-         'Content-Type': 'application/json', 'x-simulated-trading': '1'}
+         'Content-Type': 'application/json', 'x-simulated-trading': os.getenv('OKX_FLAG', '1')}
     url = 'https://www.okx.com' + path
     try:
         if body:

@@ -14,6 +14,7 @@ import sys
 import os
 import json
 import time
+import signal
 import subprocess
 import requests
 import logging
@@ -531,6 +532,15 @@ def guard_cycle():
 if __name__ == '__main__':
     from filelock import FileLock
 
+    # 全局超时：100秒后强制退出，防止LLM调用超时导致cron任务堆积
+    # full_scan正常约97秒，冷启动可能更长
+    _CRON_TIMEOUT = 100
+    def _timeout_handler(signum, frame):
+        logger.error(f"⏰ 全局超时({_CRON_TIMEOUT}s)触发，强制退出")
+        raise SystemExit(1)
+    signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.alarm(_CRON_TIMEOUT)
+
     COOLDOWN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.cooldown.json')
     COOLDOWN_SEC = 900  # 15分钟cooldown
     
@@ -542,6 +552,7 @@ if __name__ == '__main__':
             last_action = cd.get('last_emergency_action_ts', 0)
             if time.time() - last_action < COOLDOWN_SEC:
                 logger.info(f'⏭️ Cooldown生效（{COOLDOWN_SEC//60}分钟），距上次紧急操作{time.time()-last_action:.0f}秒，跳过')
+                signal.alarm(0)
                 exit(0)
     except:
         pass
@@ -568,3 +579,4 @@ if __name__ == '__main__':
             lock.release()
         except:
             pass
+        signal.alarm(0)  # 取消全局alarm
