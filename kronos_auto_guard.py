@@ -79,21 +79,18 @@ def get_feishu_token():
     return None
 
 def feishu_notify(text):
-    """发送飞书消息"""
+    """发送飞书消息 — 通过notification_manager（去重+冷却+模式感知）
+
+    在模拟盘模式下：🚨告警始终发送，其他静默
+    """
     try:
-        token = get_feishu_token()
-        if not token:
-            return
-        headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-        payload = {
-            'receive_id': FEISHU_CHAT_ID,
-            'msg_type': 'text',
-            'content': json.dumps({'text': text})
-        }
-        resp = requests.post(
-            'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id',
-            headers=headers, json=payload, timeout=10
-        )
+        from notification_manager import send_feishu
+        # auto-classify: 🚨/🚫 → critical, 其他 → info
+        if text.startswith(('🚨', '🚫')):
+            category = 'critical'
+        else:
+            category = 'info'
+        send_feishu(text, category)
     except Exception as e:
         logger.error(f"飞书通知失败: {e}")
 
