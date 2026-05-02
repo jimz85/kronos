@@ -8,6 +8,7 @@
 import os, sys, json, time, hmac, hashlib, base64, requests, logging
 from pathlib import Path
 from datetime import datetime
+from filelock import FileLock
 
 logger = logging.getLogger('real_monitor')
 if not logger.handlers:
@@ -1113,8 +1114,9 @@ def sync_paper_log(real_pos, paper_path=None):
             # 已存在：确保状态是OPEN
             for t in paper:
                 if t['coin'] == coin and t.get('status') != 'OPEN':
-                    # Don't re-open if it was closed by OKX_sync_no_position (ghost)
-                    if t.get('close_reason') == 'OKX_sync_no_position':
+                    # Don't re-open if it was closed by ghost detection
+                    cr = t.get('close_reason', '')
+                    if cr in ('OKX_sync_no_position',) or cr.startswith('pos_mgmt_ghost:'):
                         continue  # Skip - this was a confirmed ghost
                     t['status'] = 'OPEN'
                     t['open_time'] = datetime.now().isoformat()  # 重置开仓时间
@@ -1595,6 +1597,16 @@ def monitor_and_fix():
 
 
 if __name__ == '__main__':
+    # ── 并发锁：防止双cron同时运行导致状态文件损坏 ─────
+    LOCK_FILE = os.path.join(os.path.dirname(__file__), '.real_monitor.lock')
+    try:
+        lock = FileLock(LOCK_FILE, timeout=1)
+        lock.acquire()
+    except:
+        # 锁获取失败 -> 另一个实例正在运行 -> 静默退出
+        logger.info('跳过: 另一实例正在运行（%s）' % LOCK_FILE)
+        sys.exit(0)
+
     # 显示系统启动信息（实时查权益）
     bal = get_account_balance()
     equity = bal.get('totalEq', 0)

@@ -34,6 +34,7 @@ Thumbs.db
 .judgment.lock
 .trade.lock
 .autoguard.lock
+.real_monitor.lock
 paper_trades.json
 kronos_heartbeat.json
 
