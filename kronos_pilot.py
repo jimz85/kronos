@@ -1431,6 +1431,9 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
         'hold_hours': None,
         'close_reason': None,   # 平仓时由close_paper_trade填写
         'okx_result': result,
+        # ── 动态止损：跟踪最高/最低价 ─────────────────────────
+        'peak_price': entry_px if signal.get('direction') == 'LONG' else None,  # LONG跟踪最高
+        'valley_price': entry_px if signal.get('direction') == 'SHORT' else None,  # SHORT跟踪最低
     }
     # ✅ P0 Fix: 修复SL/TP方向+去除多余的/100
     # _get_volatility_stop返回小数(如0.05=5%)，直接用(1-sl_pct)即可
@@ -1511,8 +1514,9 @@ def close_paper_trade(coin, exit_price, reason='MANUAL'):
     return None
 
 def check_stop_take_profit(prices):
-    """检查所有持仓是否触发止损/止盈"""
+    """检查所有持仓是否触发止损/止盈 — 含动态trailing stop"""
     log = load_paper_log()
+    changed = False
     closed = []
     for trade in log:
         if trade['status'] != 'OPEN':
@@ -1525,17 +1529,51 @@ def check_stop_take_profit(prices):
         direction = trade['direction']
         
         if direction == 'LONG':
-            pnl_pct = (price - entry) / entry * 100 * LEV
-            if price <= entry * (1 - STOP_LOSS / LEV):
-                closed.append((coin, price, 'SL', pnl_pct))
-            elif price >= entry * (1 + TAKE_PROFIT / LEV):
-                closed.append((coin, price, 'TP', pnl_pct))
-        else:
-            pnl_pct = (entry - price) / entry * 100 * LEV
-            if price >= entry * (1 + STOP_LOSS / LEV):
-                closed.append((coin, price, 'SL', pnl_pct))
-            elif price <= entry * (1 - TAKE_PROFIT / LEV):
-                closed.append((coin, price, 'TP', pnl_pct))
+            peak = trade.get('peak_price', entry) or entry
+            if price > peak:
+                trade['peak_price'] = price
+                changed = True
+                peak = price
+            # 动态trailing stop（用peak_price优化初始的位置）
+            from risk.dynamic_trailing import DynamicTrailingStop, TrailingConfig
+            ts = DynamicTrailingStop(
+                name=f'{coin}_trailing',
+                config=TrailingConfig(mode='atr', atr_multiplier=3.0)
+            )
+            ts.activate(entry, 1, price)
+            ts._state.highest_price = peak  # 用历史峰值替代当前价
+            ts._update_stop(price)
+            if ts.is_stop_hit(price):
+                closed.append((coin, price, 'trailing_SL', (price - entry) / entry * 100 * LEV))
+                continue
+            # 静态止盈（TP仍然用固定值）
+            if price >= entry * (1 + TAKE_PROFIT / LEV):
+                closed.append((coin, price, 'TP', (price - entry) / entry * 100 * LEV))
+                continue
+        else:  # SHORT
+            valley = trade.get('valley_price', entry) or entry
+            if price < valley:
+                trade['valley_price'] = price
+                changed = True
+                valley = price
+            from risk.dynamic_trailing import DynamicTrailingStop, TrailingConfig
+            ts = DynamicTrailingStop(
+                name=f'{coin}_trailing',
+                config=TrailingConfig(mode='atr', atr_multiplier=3.0)
+            )
+            ts.activate(entry, -1, price)
+            ts._state.lowest_price = valley  # 用历史最低替代当前价
+            ts._update_stop(price)
+            if ts.is_stop_hit(price):
+                closed.append((coin, price, 'trailing_SL', (entry - price) / entry * 100 * LEV))
+                continue
+            if price <= entry * (1 - TAKE_PROFIT / LEV):
+                closed.append((coin, price, 'TP', (entry - price) / entry * 100 * LEV))
+                continue
+    
+    # 持久化更新后的peak/valley
+    if changed:
+        save_paper_log(log)
     
     result = []
     for coin, price, reason, pnl_pct in closed:
