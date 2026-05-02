@@ -1933,32 +1933,30 @@ def generate_signals():
     return signals, prices
 
 # ============================================================
-# 飞书推送
+# 飞书推送 — 通过notification_manager（自带去重+冷却+模式感知）
 # ============================================================
 def push_feishu(message):
+    """
+    统一飞书推送接口（向后兼容）
+    
+    根据消息前缀自动判断类别：
+    - 🚨/🚫 → CRITICAL（模拟盘也发送）
+    - ⏰/⚠️ → STATUS（带冷却）
+    - 其他 → INFO（模拟盘静默）
+    """
     try:
-        app_id = os.environ.get('FEISHU_APP_ID', '')
-        app_secret = os.environ.get('FEISHU_APP_SECRET', '')
-        if not app_id or not app_secret:
-            _pilot_logger.warning('    ⚠️ 飞书APP_ID/APP_SECRET未配置，跳过推送')
-            return False
-        tr = requests.post('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
-                         json={'app_id': app_id, 'app_secret': app_secret}, timeout=10)
-        td = tr.json()
-        if td.get('code') != 0:
-            return False
-        token = td.get('tenant_access_token')
-        headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-        payload = {
-            'receive_id': 'oc_bfd8a7cc1a606f190b53e3fd0167f5a0',
-            'msg_type': 'text',
-            'content': json.dumps({'text': message[:4000]}),
-        }
-        params = {'receive_id_type': 'chat_id'}
-        rr = requests.post('https://open.feishu.cn/open-apis/im/v1/messages',
-                          headers=headers, json=payload, params=params, timeout=10)
-        return rr.json().get('code') == 0
-    except:
+        from notification_manager import send_feishu
+        
+        # 根据消息前缀自动判断类别
+        if message.startswith(('🚨', '🚫')):
+            category = 'critical'
+        elif message.startswith(('⏰', '⚠️')):
+            category = 'status'
+        else:
+            category = 'info'
+        
+        return send_feishu(message, category)
+    except Exception:
         return False
 
 # ============================================================

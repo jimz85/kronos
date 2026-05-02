@@ -47,3 +47,9 @@ kronos_heartbeat.json
 .cooldown.json
 data/trade_journal.jsonl
 decision_journal.jsonl
+
+# Notification manager state (runtime, auto-generated)
+data/notification_dedup.json
+data/last_connectivity.json
+data/last_position_snapshot.json
+data/previous_scan_state.json

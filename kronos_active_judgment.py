@@ -208,24 +208,24 @@ def get_feishu_token():
     return None
 
 def feishu_notify(text):
-    """发送飞书消息"""
+    """发送飞书消息 — 通过notification_manager（去重+冷却+模式感知）
+    
+    自动分类：
+    - 🔄/📈 → STATUS（带冷却，模拟盘静默）
+    - 🚨/✅ → CRITICAL（始终发送）
+    - 其他 → INFO（带冷却，模拟盘静默）
+    """
     try:
-        token = get_feishu_token()
-        if not token:
-            return
-        headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-        chat_id = os.getenv("HERMES_SESSION_KEY", "").split(":")[-1]
-        if not chat_id:
-            chat_id = FEISHU_CHAT_ID
-        payload = {
-            'receive_id': chat_id,
-            'msg_type': 'text',
-            'content': json.dumps({'text': text})
-        }
-        resp = requests.post(
-            'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id',
-            headers=headers, json=payload, timeout=10
-        )
+        from notification_manager import send_feishu
+        
+        if text.startswith(('🚨', '✅')):
+            category = 'critical'
+        elif text.startswith(('🔄', '📈')):
+            category = 'status'
+        else:
+            category = 'operation' if any(w in text for w in ['平仓', '强平']) else 'info'
+        
+        send_feishu(text, category)
     except:
         pass
 
