@@ -185,11 +185,15 @@ def fetch_exchange_state() -> ExchangeState:
     return state
 
 def load_local_state() -> LocalState:
-    """Load locally tracked state from disk."""
+    """Load locally tracked state from disk.
+
+    ✅ P2 Fix: 正确读取paper_trades.json（修复原实现只看order_id/ordId的问题）。
+    paper_trades使用: id(字符串), trade_id(UUID), coin, direction, status, contracts。
+    """
     state = LocalState()
     state.timestamp = datetime.now().isoformat()
 
-    # Load positions from local_state.json
+    # Load positions from local_state.json (legacy)
     if LOCAL_STATE_FILE.exists():
         try:
             with open(LOCAL_STATE_FILE) as f:
@@ -206,21 +210,46 @@ def load_local_state() -> LocalState:
                                 stop_loss=info.get('stop'))
         except: pass
 
-    # Load paper trades
+    # Load paper_trades.json (primary source)
+    # paper_trades格式: id, trade_id(UUID), coin, direction, status, contracts, entry_price等
     if PAPER_TRADES_FILE.exists():
         try:
             with open(PAPER_TRADES_FILE) as f:
                 trades = json.load(f)
             for t in trades:
-                if isinstance(t, dict):
-                    oid = t.get('order_id') or t.get('ordId', '')
-                    if oid:
-                        state.orders[str(oid)] = LocalOrderRecord(
-                            order_id=str(oid),
-                            inst_id=t.get('inst_id', t.get('instId', '')),
-                            side=t.get('side', ''), sz=float(t.get('sz', t.get('size', 0))),
-                            created_at=t.get('time', ''), status=t.get('status', 'open'))
-        except: pass
+                if not isinstance(t, dict):
+                    continue
+                status = t.get('status', '')
+                coin = t.get('coin', '')
+                direction = t.get('direction', '')
+                # 只追踪OPEN的paper_trades持仓
+                if status == 'OPEN' and coin:
+                    inst_id = f"{coin}-USDT-SWAP"
+                    # 转换direction格式
+                    dir_lower = direction.lower()
+                    if dir_lower in ('long', '做多'):
+                        dir_normalized = 'long'
+                    elif dir_lower in ('short', '做空'):
+                        dir_normalized = 'short'
+                    else:
+                        dir_normalized = dir_lower
+                    state.positions[inst_id] = LocalPositionRecord(
+                        inst_id=inst_id,
+                        direction=dir_normalized,
+                        entry_price=t.get('entry_price', 0),
+                        contracts=t.get('contracts', 0),
+                        stop_loss=t.get('sl_price'),
+                        opened_at=t.get('open_time', ''))
+                    result_key = t.get('trade_id') or t.get('id', '')
+                    state.orders[str(result_key)] = LocalOrderRecord(
+                        order_id=str(result_key),
+                        inst_id=inst_id,
+                        side=dir_normalized,
+                        sz=t.get('contracts', 0),
+                        created_at=t.get('open_time', ''),
+                        status='open')
+        except Exception as e:
+            pass  # 不阻断
 
     return state
 

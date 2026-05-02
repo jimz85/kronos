@@ -1362,14 +1362,80 @@ def save_position_state(coin, state):
     except:
         pass
 
+def _paper_trade_duplicate_check(coin, direction):
+    """检查paper_trades是否已有OPEN的同币种同方向仓位。
+    防止重复开仓导致的phantom累积。
+    返回: (is_duplicate, existing_entry)
+    """
+    PAPER_TRADES = Path.home() / '.hermes/cron/output/paper_trades.json'
+    if not PAPER_TRADES.exists():
+        return False, None
+    try:
+        trades = json.loads(PAPER_TRADES.read_text())
+    except:
+        return False, None
+    for t in trades:
+        if t.get('coin') == coin and t.get('direction') == direction and t.get('status') == 'OPEN':
+            return True, t
+    return False, None
+
+def _verify_position_on_okx(coin, direction, contracts, entry_price):
+    """验证OKX真实持仓是否存在且规模合理。
+    防止：订单本地成功但OKX拒绝（余额不足等）却仍写入paper_trades。
+    返回: (is_real, reason)
+    """
+    try:
+        positions = get_all_positions()
+        # 转换方向
+        paper_side = direction.lower()
+        if paper_side in ('long', '做多'):
+            paper_side = 'long'
+        elif paper_side in ('short', '做空'):
+            paper_side = 'short'
+
+        pos_key = f"{coin}_{paper_side}"  # get_all_positions()的key格式
+
+        if pos_key not in positions:
+            return False, f"OKX无{coin}_{paper_side}持仓"
+
+        pos_data = positions[pos_key]
+        real_pos = pos_data['pos']
+        if real_pos == 0:
+            return False, f"OKX无{coin}_{paper_side}有效持仓"
+
+        # 规模检查：paper_trades的合约数不应远超OKX真实持仓（容许20%误差）
+        if contracts > real_pos * 1.2:
+            return False, f"规模虚报: paper={contracts}张 vs OKX={real_pos}张"
+        return True, "ok"
+    except Exception as e:
+        # 网络异常时放行（保守策略：不让验证阻止正常交易）
+        return True, f"verify_skipped({e})"
+
 def save_paper_trade(coin, direction, entry_price, size_usd, contracts,
                      leverage, sl_price, tp_price,
                      best_factor, confidence, ic,
                      rsi_at_entry, adx_at_entry, btc_price_at_entry,
                      open_reason, equity_at_open):
     """P1 Fix: 开仓时保存完整元数据到paper_trades.json
-    equity_at_open: 开仓时的账户权益（传入，不在函数内引用全局变量）
+
+    ✅ P2 Fix: 增加三重保护防止phantom仓位:
+      1. 检查paper_trades是否已有同币种同方向OPEN（防止重复追加）
+      2. 验证OKX真实持仓是否存在（防止订单失败却记录）
+      3. 规模合理性检查（防止虚报仓位）
     """
+    # ── 第1重: 重复开仓检查 ───────────────────────────────
+    is_dup, existing = _paper_trade_duplicate_check(coin, direction)
+    if is_dup:
+        print(f"  ⚠️ {coin} {direction} 已存在OPEN仓位(id={existing['id'][:30]}), 跳过重复写入")
+        return
+
+    # ── 第2+3重: OKX持仓验证 ─────────────────────────────
+    is_real, reason = _verify_position_on_okx(coin, direction, contracts, entry_price)
+    if not is_real:
+        print(f"  👻 phantom防御: {coin} {direction} {reason}, 拒绝写入paper_trades")
+        return
+
+    # ── 通过所有检查，写入 ────────────────────────────────
     PAPER_TRADES = Path.home() / '.hermes/cron/output/paper_trades.json'
     try:
         PAPER_TRADES.parent.mkdir(parents=True, exist_ok=True)
@@ -1412,17 +1478,41 @@ def save_paper_trade(coin, direction, entry_price, size_usd, contracts,
         trades.append(entry)
         atomic_write_json(PAPER_TRADES, trades, indent=2)
     except Exception as e:
-        print(f"  ⚠️  保存paper_trades失败: {e}")
+        print(f"  ⚠️ 保存paper_trades失败: {e}")
 
 def close_paper_trade(coin, direction, close_reason, exit_price, pnl):
     """
     平仓时标记paper_trades中对应条目为CLOSED
+
+    ✅ P2 Fix: 平仓前先验证OKX真实持仓是否已平，
+       防止：OKX订单失败但本地标记CLOSED → phantom被"平"
     """
     PAPER_TRADES = Path.home() / '.hermes/cron/output/paper_trades.json'
     try:
         if not PAPER_TRADES.exists():
             return
         trades = json.loads(PAPER_TRADES.read_text())
+
+        # 转换paper_trades方向 → OKX posSide
+        paper_side = direction.lower()
+        if paper_side in ('long', '做多'):
+            paper_side = 'long'
+        elif paper_side in ('short', '做空'):
+            paper_side = 'short'
+
+        # ✅ 平仓前OKX持仓验证：确保真实持仓已平
+        try:
+            positions = get_all_positions()
+            pos_key = f"{coin}_{paper_side}"  # get_all_positions()的key格式
+            if pos_key in positions and positions[pos_key].get('pos', 0) > 0:
+                # OKX还有这个方向的持仓，不能标记为CLOSED
+                real_pos = positions[pos_key]['pos']
+                print(f"  ⚠️ {coin} {direction} OKX仍有{real_pos}张持仓未平，拒绝标记CLOSED")
+                return
+        except Exception as e:
+            print(f"  ⚠️ OKX持仓验证异常: {e}，继续标记")
+
+        # 找到OPEN的对应条目并标记
         for t in trades:
             if t.get('coin') == coin and t.get('direction') == direction and t.get('status') == 'OPEN':
                 t['status'] = 'CLOSED'
@@ -4069,6 +4159,74 @@ if __name__ == '__main__':
             import sys
             sys.argv = ['kronos_multi_coin.py', '--audit']
             AUDIT_ONLY = True
+
+        # ── P2: 执行前自我检查 ────────────────────────────────────
+        # 防止phantom/zombie仓位导致错误交易决策
+        try:
+            from reconcile_state import reconcile_state, load_local_state, fetch_exchange_state
+            exchange = fetch_exchange_state()
+            local = load_local_state()
+
+            # Phantom检查：有本地OPEN但OKX没有 → 立即中止扫描
+            phantom_found = False
+            for inst_id, lpos in local.positions.items():
+                if inst_id not in exchange.positions:
+                    phantom_found = True
+                    print(f"  🚨 PHANTOM检测: {inst_id} 在paper_trades为OPEN但OKX无持仓，中止本次扫描")
+                    print(f"     请运行: python3 reconcile_state.py 查看详情")
+
+            if phantom_found:
+                lock.release()
+                exit(1)
+
+            # Zombie同步：OKX有真实持仓但paper_trades没有 → 自我修复
+            for inst_id, epos in exchange.positions.items():
+                coin = inst_id.replace('-USDT-SWAP', '')
+                direction = 'long' if epos.direction == 'long' else 'short'
+                if inst_id not in local.positions:
+                    print(f"  🔧 ZOMBIE同步: {coin} {direction} 在OKX存在但paper_trades无记录，添加追踪")
+                    # 追加到paper_trades（作为已知真实持仓）
+                    PAPER_TRADES = Path.home() / '.hermes/cron/output/paper_trades.json'
+                    try:
+                        trades = []
+                        if PAPER_TRADES.exists():
+                            trades = json.loads(PAPER_TRADES.read_text())
+                        # 检查是否已存在
+                        exists = any(
+                            t.get('coin') == coin and t.get('direction') == direction and t.get('status') == 'OPEN'
+                            for t in trades
+                        )
+                        if not exists:
+                            from datetime import datetime as _dt
+                            trade_id = f"zombie_sync_{coin}_{direction}_{int(_time.time()*1000)}"
+                            trades.append({
+                                'id': trade_id,
+                                'trade_id': trade_id,
+                                'coin': coin,
+                                'direction': direction,
+                                'status': 'OPEN',
+                                'entry_price': epos.entry_price,
+                                'exit_price': None,
+                                'size_usd': epos.notional,
+                                'contracts': abs(epos.pos),
+                                'leverage': epos.leverage,
+                                'pnl': 0.0,
+                                'open_time': _dt.now().isoformat(),
+                                'close_time': None,
+                                'close_reason': None,
+                                'best_factor': 'zombie_sync',
+                                'confidence': 0,
+                                'ic': 0,
+                                'open_reason': 'zombie_sync:从OKX同步',
+                                'source': 'zombie_sync',
+                            })
+                            atomic_write_json(PAPER_TRADES, trades, indent=2)
+                            print(f"     ✅ 已同步: {coin} {direction} {abs(epos.pos)}张 @{epos.entry_price}")
+                    except Exception as e:
+                        print(f"     ⚠️ ZOMBIE同步失败: {e}")
+        except Exception as e:
+            print(f"  ⚠️ 自我检查异常: {e}，继续执行")
+
         result = full_scan()
     finally:
         try:
