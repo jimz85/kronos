@@ -1314,8 +1314,12 @@ def check_treasury(equity, proposed_loss=None, positions=None):
         if hourly_loss >= hourly_limit:
             return False, f'小时亏损${hourly_loss:.2f}>${hourly_limit:.2f}', limits
 
-    if equity < limits['reserve']:
-        return False, f'权益${equity:.0f}<保留金${limits["reserve"]:.0f}', limits
+    # P0 Fix: reserve死代码修复 — 用日起点权益计算保留金
+    # 原来: reserve = equity×20% (self-referential → 永不触发)
+    # 现在: reserve = daily_snapshot×15% (日起点权益的15%)
+    reserve_threshold = round(daily_snapshot * 0.15, 2)
+    if equity < reserve_threshold:
+        return False, f'权益${equity:.0f}<保留金${reserve_threshold:.0f}(日起点${daily_snapshot:.0f}x15%)', limits
     if proposed_loss and proposed_loss > limits['per_trade']:
         return False, f'理论亏损${proposed_loss:.2f}>单笔限制${limits["per_trade"]:.2f}', limits
 
