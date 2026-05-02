@@ -824,13 +824,12 @@ def get_atr(coin, period=14):
     candles = get_ohlcv(coin, '1H', period + 5)
     if len(candles) < period + 1:
         return None
-    trs = []
-    for i in range(1, len(candles)):
-        tr = max(candles[i]['high'] - candles[i]['low'],
-                 abs(candles[i]['high'] - candles[i-1]['close']),
-                 abs(candles[i]['low'] - candles[i-1]['close']))
-        trs.append(tr)
-    return sum(trs[-period:]) / period if len(trs) >= period else None
+    highs = [c['high'] for c in candles]
+    lows = [c['low'] for c in candles]
+    closes = [c['close'] for c in candles]
+    from core.indicators import calc_atr
+    atr_series = calc_atr(highs, lows, closes, period)
+    return float(atr_series.iloc[-1])
 
 def get_btc_direction():
     """BTC 1h RSI方向"""

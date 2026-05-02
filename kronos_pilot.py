@@ -298,11 +298,10 @@ def _get_volatility_stop(symbol, hold_hours=72):
             highs  = np.array([c[2] for c in ohlcv_d])
             lows   = np.array([c[3] for c in ohlcv_d])
             closes = np.array([c[4] for c in ohlcv_d])
-            trs = np.maximum(
-                highs[1:] - lows[1:],
-                np.abs(highs[1:] - closes[:-1]),
-                np.abs(lows[1:] - closes[:-1]))
-            atr = np.mean(trs)  # 日线ATR（美元）
+            from core.indicators import calc_atr
+            _p = min(14, len(highs) - 1)
+            atr_series = calc_atr(highs, lows, closes, max(_p, 1))
+            atr = float(atr_series.iloc[-1])  # 日线ATR（美元）
             price = closes[-1]
             # sqrt时间缩放：√(hold_hours / 24) 使止损宽度与√时间成正比
             # 日线ATR基准已隐含24h波动，用sqrt缩放到目标持仓时间
@@ -316,8 +315,10 @@ def _get_volatility_stop(symbol, hold_hours=72):
             highs  = np.array([c[2] for c in ohlcv_h])
             lows   = np.array([c[3] for c in ohlcv_h])
             closes = np.array([c[4] for c in ohlcv_h])
-            trs = np.maximum(highs[1:] - lows[1:], np.abs(highs[1:] - closes[:-1]), np.abs(lows[1:] - closes[:-1]))
-            atr_h = np.mean(trs)  # 1h ATR（美元）
+            from core.indicators import calc_atr
+            _p = min(14, len(highs) - 1)
+            atr_series = calc_atr(highs, lows, closes, max(_p, 1))
+            atr_h = float(atr_series.iloc[-1])  # 1h ATR（美元）
             price = closes[-1]
             # 1h ATR → 缩放到 hold_hours
             # 1h ATR的√1=1 → 目标时间 √(hold_hours)
