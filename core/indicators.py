@@ -42,6 +42,32 @@ def calc_rsi(
     return float(rsi.iloc[-1])
 
 
+def rsi_series(
+    prices: Union[PriceArray, list[float]],
+    period: int = 14,
+) -> pd.Series:
+    """
+    Calculate RSI as a full pandas Series (for IC computation, etc.)
+
+    Same algorithm as calc_rsi() but returns all values as a Series.
+
+    Args:
+        prices: array-like, closing prices
+        period: int, RSI period (default: 14)
+
+    Returns:
+        pd.Series: RSI values (0-100) for each position
+    """
+    prices_arr = np.asarray(prices, dtype=np.float64).flatten()
+    deltas = np.diff(prices_arr, prepend=prices_arr[0])
+    gains = np.where(deltas > 0, deltas, 0.0)
+    losses = np.where(deltas < 0, -deltas, 0.0)
+    avg_gain = pd.Series(gains).rolling(period).mean()
+    avg_loss = pd.Series(losses).rolling(period).mean()
+    rs = avg_gain / (avg_loss + 1e-10)
+    return pd.Series(100.0 - (100.0 / (1.0 + rs)))
+
+
 def calc_ma(
     prices: Union[PriceArray, list[float]],
     period: int,

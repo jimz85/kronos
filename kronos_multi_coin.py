@@ -765,51 +765,23 @@ def get_ohlcv(coin, bar='1H', limit=72):
         return []
 
 def calc_rsi(candles, period=14):
+    """RSI — delegate to core.indicators.calc_rsi"""
     if len(candles) < period + 1:
         return 50
     closes = [c['close'] for c in candles]
-    deltas = [closes[i] - closes[i-1] for i in range(1, len(closes))]
-    gains = [d if d > 0 else 0 for d in deltas[-period:]]
-    losses = [-d if d < 0 else 0 for d in deltas[-period:]]
-    avg_gain = sum(gains) / period
-    avg_loss = sum(losses) / period
-    if avg_loss == 0:
-        return 100
-    return 100 - (100 / (1 + avg_gain / avg_loss))
+    from core.indicators import calc_rsi as _calc_rsi
+    return _calc_rsi(closes, period)
 
 def calc_adx(candles, period=14):
-    """Wilder平滑ADX"""
+    """ADX — delegate to core.indicators.calc_adx"""
     if len(candles) < period * 2:
         return 20
     highs = [c['high'] for c in candles]
     lows = [c['low'] for c in candles]
     closes = [c['close'] for c in candles]
-    trs, plus_dm, minus_dm = [], [], []
-    for i in range(1, len(candles)):
-        tr = max(highs[i]-lows[i], abs(highs[i]-closes[i-1]), abs(lows[i]-closes[i-1]))
-        up = highs[i] - highs[i-1]
-        down = lows[i-1] - lows[i]
-        trs.append(tr)
-        plus_dm.append(up if up > down and up > 0 else 0)
-        minus_dm.append(down if down > up and down > 0 else 0)
-    if len(trs) < period:
-        return 20
-    atr = sum(trs[:period]) / period
-    plus_sum = sum(plus_dm[:period]) / period
-    minus_sum = sum(minus_dm[:period]) / period
-    dx_vals = []
-    for i in range(period, len(trs)):
-        atr = (atr * (period - 1) + trs[i]) / period
-        plus_sum = (plus_sum * (period - 1) + plus_dm[i]) / period
-        minus_sum = (minus_sum * (period - 1) + minus_dm[i]) / period
-        if atr > 0:
-            plus_di = (plus_sum / atr) * 100
-            minus_di = (minus_sum / atr) * 100
-            if plus_di + minus_di > 0:
-                dx_vals.append(abs(plus_di - minus_di) / (plus_di + minus_di) * 100)
-    if len(dx_vals) < period:
-        return 20
-    return sum(dx_vals[-period:]) / period
+    from core.indicators import calc_adx as _calc_adx
+    result = _calc_adx(highs, lows, closes, period)
+    return float(result.iloc[-1])
 
 def calc_cci(candles, period=20):
     """

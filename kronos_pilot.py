@@ -1623,23 +1623,21 @@ def get_okx_prices():
     return prices
 
 # ============================================================
-# 技术指标
+# 技术指标 — 委托给 core/indicators（单一事实源）
 # ============================================================
 def rsi(s, p=14):
-    d = s.diff()
-    g = d.clip(lower=0).rolling(p).mean()
-    l = (-d.clip(upper=0)).rolling(p).mean()
-    return 100 - (100 / (1 + g / l.replace(0, np.nan)))
+    """RSI Series — delegate to core.indicators.rsi_series"""
+    from core.indicators import rsi_series
+    result = rsi_series(s.values, p)
+    result.index = s.index
+    return result
 
 def adx(h, lo, c, p=14):
-    pdm = h.diff(); mdm = -lo.diff()
-    pdm[pdm < 0] = 0; mdm[mdm < 0] = 0
-    tr = np.maximum(h - lo, np.maximum(abs(h - c.shift(1)), abs(lo - c.shift(1))))
-    atr = tr.rolling(p).mean()
-    pdi = 100 * (pdm.rolling(p).mean() / atr)
-    mdi = 100 * (mdm.rolling(p).mean() / atr)
-    dx = 100 * abs(pdi - mdi) / (pdi + mdi)
-    return dx.rolling(p).mean()
+    """ADX Series — delegate to core.indicators.calc_adx"""
+    from core.indicators import calc_adx
+    result = calc_adx(h.values, lo.values, c.values, p)
+    result.index = h.index
+    return result
 
 def compute_ic(factors_df, ret_series, window=60):
     results = {}
