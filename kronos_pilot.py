@@ -330,19 +330,56 @@ def _get_volatility_stop(symbol, hold_hours=72):
     except Exception:
         return STOP_LOSS
 
-def auto_position_sizing(symbol, available_balance, base_risk_pct=0.02, min_trade_usdt=15):
+def auto_position_sizing(symbol, available_balance, base_risk_pct=0.02, min_trade_usdt=15,
+                         entry_price=None, direction='LONG', confidence=0.5):
     """
-    余额驱动的自动仓位管理：
+    余额驱动的自动仓位管理 — 使用PositionSizer计算
+
     - 基础风险金额 = 总余额 × 2%
-    - 根据动态止损距离反推开仓金额
+    - 支持置信度调整、波动率调整
     - 过滤低于最小交易额的噪音信号
     返回: position_usdt (float) 或 None（信号作废）
     """
     stop_pct = _get_volatility_stop(symbol)
-    risk_amount = available_balance * base_risk_pct  # 2%风险
-    position_usdt = risk_amount / stop_pct
+    if stop_pct <= 0:
+        stop_pct = STOP_LOSS
+
+    from models.position_sizer import PositionSizer, RiskParameters
+    try:
+        sizer = PositionSizer(
+            risk_params=RiskParameters(
+                max_risk_per_trade=base_risk_pct,
+                default_stop_pct=stop_pct,
+            ),
+            account_balance=available_balance
+        )
+
+        if entry_price and stop_pct:
+            if direction == 'LONG':
+                sl_price = entry_price * (1 - stop_pct)
+                tp_price = entry_price * (1 + stop_pct * 1.5)
+            else:
+                sl_price = entry_price * (1 + stop_pct)
+                tp_price = entry_price * (1 - stop_pct * 1.5)
+
+            result = sizer.calculate_size(
+                entry_price=entry_price,
+                stop_loss=sl_price,
+                take_profit=tp_price,
+                signal_confidence=confidence,
+            )
+            position_usdt = result.size_dollars
+            if result.adjusted_for:
+                adj_str = ', '.join(result.adjusted_for)
+                _pilot_logger.info('  PositionSizer调整: %s' % adj_str)
+        else:
+            position_usdt = available_balance * base_risk_pct / stop_pct
+    except Exception:
+        # fallback: 原始计算方法
+        position_usdt = available_balance * base_risk_pct / stop_pct
+
     if position_usdt < min_trade_usdt:
-        return None  # 信号作废，不报错
+        return None
     return position_usdt
 
 # 启动时清理过期黑名单
@@ -1231,7 +1268,12 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
     # 计算合约张数（OKX USDT永续合约每张=$100）
     # 仓位 = 可用余额×2%÷止损距离（动态风险管理）
     # 张数 = 仓位÷100（OKX每张合约=$100）
-    position_usdt = auto_position_sizing(signal['coin'], adjusted_balance)
+    position_usdt = auto_position_sizing(
+        signal['coin'], adjusted_balance,
+        entry_price=price,
+        direction=signal['direction'],
+        confidence=signal.get('confidence', 50) / 100.0,
+    )
     if position_usdt is None:
         _pilot_logger.warning('  信号作废: %s 余额%.2f USDT低于最小交易额' % (signal['coin'], actual_balance))
         return None  # 静默跳过，不报错
