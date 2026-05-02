@@ -99,7 +99,7 @@ def main():
 
         coin = t.get('coin', 'UNKNOWN')
         # P0 Fix: 跳过手动开仓的交易（避免手动仓位污染IC统计）
-        if '历史手动开仓' in t.get('open_reason', ''):
+        if '历史手动开仓' in (t.get('open_reason') or ''):
             continue
         # P2 Fix: 跳过coin_strategy_map中标记为excluded的币种
         if coin in excluded_coins_set:

@@ -1115,7 +1115,7 @@ def sync_paper_log(real_pos, paper_path=None):
             for t in paper:
                 if t['coin'] == coin and t.get('status') != 'OPEN':
                     # Don't re-open if it was closed by ghost detection
-                    cr = t.get('close_reason', '')
+                    cr = t.get('close_reason', '') or ''
                     if cr in ('OKX_sync_no_position',) or cr.startswith('pos_mgmt_ghost:'):
                         continue  # Skip - this was a confirmed ghost
                     t['status'] = 'OPEN'

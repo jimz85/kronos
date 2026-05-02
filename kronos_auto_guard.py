@@ -542,15 +542,20 @@ if __name__ == '__main__':
     COOLDOWN_SEC = 900  # 15分钟cooldown
     
     # Cooldown检查
+    # 注意: 必须用os._exit(0)而不是exit(0)，因为bare except:会catch SystemExit
     try:
         if os.path.exists(COOLDOWN_FILE):
             with open(COOLDOWN_FILE) as f:
                 cd = json.load(f)
             last_action = cd.get('last_emergency_action_ts', 0)
             if time.time() - last_action < COOLDOWN_SEC:
-                logger.info(f'⏭️ Cooldown生效（{COOLDOWN_SEC//60}分钟），距上次紧急操作{time.time()-last_action:.0f}秒，跳过')
-                signal.alarm(0)
-                exit(0)
+                msg = f'⏭️ Cooldown生效（{COOLDOWN_SEC//60}分钟），距上次紧急操作{time.time()-last_action:.0f}秒，跳过'
+                logger.info(msg)
+                print(msg)  # visible in cron output
+                logging.shutdown()
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os._exit(0)
     except:
         pass
 

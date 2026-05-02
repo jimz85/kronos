@@ -1,0 +1,1 @@
+{"event": "equity_snapshot", "ts": "2026-05-02T16:08:31.092Z", "equity": 70035, "unrealized_pnl": 0, "hourly_pnl": 35, "daily_pnl": -50, "positions_summary": {"DOGE": {"size": 0, "direction": "long", "entry": 0.0988, "pnl": 0}}, "note": ""}

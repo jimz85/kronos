@@ -780,12 +780,16 @@ def okx_place_order(
                 _pilot_logger.error(f'  ❌ 无法确认{coin}订单状态且无持仓，跳过SL/TP')
                 return {'success': False, 'code': err, 'entry_price': 0,
                         'sl': {'success': False, 'error': f'Network error: {err}'},
-                        'tp': {'success': False, 'error': f'Network error: {err}'}}
+                        'tp': {'success': False, 'error': f'Network error: {err}'},
+                        'order_id': '', 'algo_ids': {}}
             _pilot_logger.warning(f'  ⚠️ {coin}订单状态未知但检测到持仓@${entry_price}，挂SL/TP')
             sl_tp_results = _place_sl_tp_algo(instId, side, size_contracts, entry_price, sl_pct, tp_pct)
             return {'success': True, 'code': 'unknown_confirmed', 'entry_price': entry_price,
                     'sl': sl_tp_results['sl'], 'tp': sl_tp_results['tp'],
-                    'position_closed': False, 'order_confirmed': False}
+                    'position_closed': False, 'order_id': '', 'algo_ids': {
+                        'sl': sl_tp_results['sl'].get('algoId', ''),
+                        'tp': sl_tp_results['tp'].get('algoId', ''),
+                    }}
 
         try:
             order_result = resp.json()
@@ -793,7 +797,8 @@ def okx_place_order(
             _pilot_logger.error(f'  JSON解析失败: status={resp.status_code}')
             return {'success': False, 'code': 'parse_error', 'entry_price': 0,
                     'sl': {'success': False, 'error': 'Request failed'},
-                    'tp': {'success': False, 'error': 'Request failed'}}
+                    'tp': {'success': False, 'error': 'Request failed'},
+                    'order_id': '', 'algo_ids': {}}
 
         code = order_result.get('code', '')
         direction_str = '做多' if side == 'buy' else '做空'
@@ -802,16 +807,19 @@ def okx_place_order(
             _pilot_logger.error(f'  OKX实盘下单失败: {direction_str} {coin} code={code}')
             return {'success': False, 'code': code, 'entry_price': 0,
                     'sl': {'success': False, 'error': 'Order failed'},
-                    'tp': {'success': False, 'error': 'Order failed'}}
+                    'tp': {'success': False, 'error': 'Order failed'},
+                    'order_id': '', 'algo_ids': {}}
 
-        # Step 3: 从订单结果获取实际成交价
+        # Step 3: 从订单结果获取实际成交价和订单ID
         try:
             fill_data = order_result['data'][0]
             entry_price = float(fill_data.get('fillPx', 0))
+            order_id = fill_data.get('ordId', '')
             if entry_price <= 0:
                 entry_price = _get_position_entry_price(instId)
         except:
             entry_price = _get_position_entry_price(instId)
+            order_id = ''
 
         if entry_price <= 0:
             _pilot_logger.warning(f'  ⚠️ 无法获取{coin}成交价，跳过SL/TP')
@@ -822,7 +830,8 @@ def okx_place_order(
                 _pilot_logger.error(f'  ❌ 平仓失败！请立即手动处理！')
             return {'success': False, 'code': '0', 'entry_price': 0,
                     'sl': {'success': False, 'error': '无法获取成交价'},
-                    'tp': {'success': False, 'error': '无法获取成交价'}}
+                    'tp': {'success': False, 'error': '无法获取成交价'},
+                    'order_id': '', 'algo_ids': {}}
 
         _pilot_logger.info(f'  OKX实盘下单成功: {direction_str} {coin} {size_contracts}张 成交价${entry_price:.4f}')
 
@@ -847,19 +856,29 @@ def okx_place_order(
                     'sl': sl_tp_results['sl'],
                     'tp': sl_tp_results['tp'],
                     'position_closed': True,
-                    'close_error': 'Unprotected position - closed'}
+                    'close_error': 'Unprotected position - closed',
+                    'order_id': order_id, 'algo_ids': {
+                        'sl': sl_tp_results['sl'].get('algoId', ''),
+                        'tp': sl_tp_results['tp'].get('algoId', ''),
+                    }}
 
         # 全部成功
         return {'success': True, 'code': '0', 'entry_price': entry_price,
                 'sl': sl_tp_results['sl'],
                 'tp': sl_tp_results['tp'],
-                'position_closed': False}
+                'position_closed': False,
+                'order_id': order_id,
+                'algo_ids': {
+                    'sl': sl_tp_results['sl'].get('algoId', ''),
+                    'tp': sl_tp_results['tp'].get('algoId', ''),
+                }}
 
     except Exception as e:
         _pilot_logger.error(f'  OKX下单失败: {type(e).__name__}')
         return {'success': False, 'code': 'exception', 'entry_price': 0,
                 'sl': {'success': False, 'error': f'Network error: {type(e).__name__}'},
-                'tp': {'success': False, 'error': f'Network error: {type(e).__name__}'}}
+                'tp': {'success': False, 'error': f'Network error: {type(e).__name__}'},
+                'order_id': '', 'algo_ids': {}}
 
 
 def _okx_market_close(instId: str, existing_side: str, size_contracts: int) -> bool:
@@ -1220,7 +1239,15 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
         price: 开仓价格
         margin_consumed: 本批次中已消耗的保证金（美元），用于避免批量开仓超出总余额
     """
+    import uuid as _uuid
     log = load_paper_log()
+
+    # ── 统一交易日志 ────────────────────────────────────────────────
+    try:
+        from trade_logger import log_order_filled, log_signal
+    except ImportError:
+        log_order_filled = None
+        log_signal = None
 
     # 导入熔断器函数（用于记录交易结果）
     try:
@@ -1444,14 +1471,18 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
                 add_to_blacklist(signal['coin'], 'timestamp_error', ttl_days=1)
                 _pilot_logger.warning('  ⚠️ 时间戳错误，1天后自动重试')
 
+    entry_px = result.get('entry_price', price) if order_success else price
+    # 生成统一trade_id（用于全链路溯源）
+    trade_id = str(_uuid.uuid4())
     trade = {
         'id': len(log) + 1,
+        'trade_id': trade_id,  # 统一溯源ID
         'open_time': datetime.now().isoformat(),
         'coin': signal['coin'],
         'direction': signal['direction'],
-        'entry_price': result.get('entry_price', price) if order_success else price,  # 真实成交价
+        'entry_price': entry_px,  # 真实成交价
         # ✅ P2 Fix: size_usd = 合约张数 × 合约乘数 × 成交价（真实USD面值）
-        'size_usd': round(contracts * ctVal * (result.get('entry_price', price) if order_success else price), 2),
+        'size_usd': round(contracts * ctVal * entry_px, 2),
         'contracts': contracts,
         'confidence': signal['confidence'],
         'best_factor': signal['best_factor'],   # 触发决策的因子
@@ -1480,7 +1511,6 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
     # ✅ P0 Fix: 修复SL/TP方向+去除多余的/100
     # _get_volatility_stop返回小数(如0.05=5%)，直接用(1-sl_pct)即可
     # LONG: SL在entry下方，TP在entry上方；SHORT: SL在entry上方，TP在entry下方
-    entry_px = trade.get('entry_price', price)
     if signal.get('direction') == 'LONG':
         trade['sl_price'] = round(entry_px * (1 - sl_pct), 6)
         trade['tp_price'] = round(entry_px * (1 + tp_pct), 6)
@@ -1489,6 +1519,24 @@ def open_paper_trade(signal, price, margin_consumed=0.0):
         trade['tp_price'] = round(entry_px * (1 - tp_pct), 6)
     if status == 'FAILED':
         trade['close_reason'] = result.get('msg', 'open_failed')[:50] if isinstance(result, dict) else 'open_failed'
+
+    # ── 统一交易日志：记录成交 ──────────────────────────────────
+    if order_success and log_order_filled is not None:
+        try:
+            equity_at_open = actual_balance
+            slippage = abs(entry_px - price) / price if price > 0 else 0.0
+            algo_ids = result.get('algo_ids', {}) if isinstance(result, dict) else {}
+            log_order_filled(
+                trade_id=trade_id,
+                order_id=result.get('order_id', '') if isinstance(result, dict) else '',
+                fill_price=entry_px,
+                fill_size=contracts,
+                slippage=slippage,
+                algo_ids=algo_ids,
+            )
+        except Exception as e:
+            _pilot_logger.warning(f'  ⚠️ 统一日志记录失败: {e}')
+
     log.append(trade)
     save_paper_log(log)
     return trade
