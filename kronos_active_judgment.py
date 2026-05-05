@@ -209,22 +209,22 @@ def get_feishu_token():
 
 def feishu_notify(text):
     """发送飞书消息 — 通过notification_manager（去重+冷却+模式感知）
-    
-    自动分类：
-    - 🔄/📈 → STATUS（带冷却，模拟盘静默）
-    - 🚨/✅ → CRITICAL（始终发送）
+
+    自动分类（统一走去重+冷却）：
+    - 🚨/✅/🚫/🔄/📈 → STATUS（模拟盘静默，带冷却去重）
+    - 包含'平仓'/'强平'/'止损'/'止盈' → OPERATION（模拟盘静默）
     - 其他 → INFO（带冷却，模拟盘静默）
     """
     try:
         from notification_manager import send_feishu
-        
-        if text.startswith(('🚨', '✅')):
-            category = 'critical'
-        elif text.startswith(('🔄', '📈')):
+
+        if any(text.startswith(e) for e in ('🚨', '✅', '🚫', '🔄', '📈')):
             category = 'status'
+        elif any(w in text for w in ['平仓', '强平', '止损', '止盈', '补SL', '补TP']):
+            category = 'operation'
         else:
-            category = 'operation' if any(w in text for w in ['平仓', '强平']) else 'info'
-        
+            category = 'info'
+
         send_feishu(text, category)
     except:
         pass

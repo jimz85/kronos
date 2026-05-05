@@ -81,13 +81,15 @@ def get_feishu_token():
 def feishu_notify(text):
     """发送飞书消息 — 通过notification_manager（去重+冷却+模式感知）
 
-    在模拟盘模式下：🚨告警始终发送，其他静默
+    模拟盘模式下：所有消息都走去重+冷却，静默重复告警。
     """
     try:
         from notification_manager import send_feishu
-        # auto-classify: 🚨/🚫 → critical, 其他 → info
-        if text.startswith(('🚨', '🚫')):
-            category = 'critical'
+        # 统一走去重+冷却通道
+        if any(text.startswith(e) for e in ('🚨', '✅', '🚫', '🔄', '📈')):
+            category = 'status'
+        elif any(w in text for w in ['平仓', '强平', '止损', '止盈', '补SL', '补TP']):
+            category = 'operation'
         else:
             category = 'info'
         send_feishu(text, category)

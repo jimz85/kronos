@@ -2065,23 +2065,22 @@ def generate_signals():
 def push_feishu(message):
     """
     统一飞书推送接口（向后兼容）
-    
-    根据消息前缀自动判断类别：
-    - 🚨/🚫 → CRITICAL（模拟盘也发送）
-    - ⏰/⚠️ → STATUS（带冷却）
-    - 其他 → INFO（模拟盘静默）
+    根据消息前缀自动判断类别（统一走去重+冷却）：
+    - 🚨/🚫/✅/🔄/📈/⏰/⚠️ → STATUS（模拟盘静默，带冷却去重）
+    - 包含'平仓'/'强平'/'止损'/'止盈'/'补SL'/'补TP' → OPERATION（模拟盘静默）
+    - 其他 → INFO（模拟盘静默，带冷却去重）
     """
     try:
         from notification_manager import send_feishu
-        
-        # 根据消息前缀自动判断类别
-        if message.startswith(('🚨', '🚫')):
-            category = 'critical'
-        elif message.startswith(('⏰', '⚠️')):
+
+        # 统一走去重+冷却通道
+        if any(message.startswith(e) for e in ('🚨', '✅', '🚫', '🔄', '📈', '⏰', '⚠️')):
             category = 'status'
+        elif any(w in message for w in ['平仓', '强平', '止损', '止盈', '补SL', '补TP']):
+            category = 'operation'
         else:
             category = 'info'
-        
+
         return send_feishu(message, category)
     except Exception:
         return False
@@ -2122,7 +2121,7 @@ def run_full_report():
     
     # 自动开仓
     log = load_paper_log()
-    open_coins = {t['coin'] for t in log if t['status'] == 'OPEN'}
+    open_coins = {t.get('coin', t.get('symbol')) for t in log if t.get('status') == 'OPEN' and (t.get('coin') or t.get('symbol'))}
     for sig in signals:
         sig['expected_profit'] = sig.get('confidence', 0) * sig.get('position_size', 0)
     signals_sorted = sorted(signals, key=lambda x: x['expected_profit'], reverse=True)
@@ -2888,7 +2887,7 @@ if __name__ == '__main__':
     elif mode == '--check-sltp':
         prices = get_okx_prices()
         closed = check_stop_take_profit(prices)
-        open_coins = {t['coin'] for t in load_paper_log() if t['status'] == 'OPEN'}
+        open_coins = {t.get('coin', t.get('symbol')) for t in load_paper_log() if t.get('status') == 'OPEN' and (t.get('coin') or t.get('symbol'))}
         if closed:
             for coin, price, reason, pnl in closed:
                 _pilot_logger.info('平仓: %s %s @ $%.4f = %+.1f%%' % (coin, reason, price, pnl))
