@@ -126,7 +126,7 @@ def send_feishu(message, category=CATEGORY_INFO):
     # ── 去重（对ROUTINE/STATUS类做冷却，CRITICAL不过滤） ──
     if category != CATEGORY_CRITICAL:
         key = _make_key(message, category)
-        if not should_notify(key, cooldown=DEFAULT_COOLDOWN if category != CATEGORY_STATUS else 3600):
+        if not should_notify(key, cooldown=DEFAULT_COOLDOWN if category != CATEGORY_STATUS else 86400):
             return False
     
     # ── 实际发送 ──────────────────────────────────────────
